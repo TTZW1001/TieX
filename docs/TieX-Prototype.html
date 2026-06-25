@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TieX Desktop Agent Prototype</title>
+  <style>
+    :root{
+      --bg:#f7f8fa;
+      --panel:#ffffff;
+      --panel-2:#f2f4f7;
+      --text:#16181d;
+      --muted:#6f7682;
+      --line:#e6e9ee;
+      --accent:#4f46e5;
+      --accent-soft:#eeecff;
+      --success:#20a36a;
+      --warning:#d28a16;
+      --danger:#d94d4d;
+      --shadow:0 16px 40px rgba(20,24,32,.08);
+      --radius:18px;
+      --sidebar:270px;
+    }
+    body.dark{
+      --bg:#111318;
+      --panel:#171a20;
+      --panel-2:#20242c;
+      --text:#f4f6f8;
+      --muted:#9aa2af;
+      --line:#2b3039;
+      --accent:#8c83ff;
+      --accent-soft:#2a2751;
+      --shadow:0 16px 40px rgba(0,0,0,.35);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Inter,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text)}
+    button,input,textarea,select{font:inherit}
+    button{cursor:pointer}
+    .app{height:100%;display:grid;grid-template-columns:var(--sidebar) 1fr;transition:.25s ease}
+    .app.collapsed{--sidebar:72px}
+    .sidebar{
+      border-right:1px solid var(--line);
+      background:var(--panel);
+      display:flex;
+      flex-direction:column;
+      min-width:0;
+      overflow:hidden;
+      transition:.25s ease;
+    }
+    .brand{
+      height:64px;
+      display:flex;
+      align-items:center;
+      gap:12px;
+      padding:0 16px;
+      border-bottom:1px solid var(--line);
+      -webkit-app-region:drag;
+    }
+    .brand-logo{
+      width:34px;height:34px;border-radius:11px;
+      display:grid;place-items:center;
+      background:linear-gradient(135deg,#4f46e5,#8b5cf6);
+      color:white;font-weight:800;box-shadow:0 8px 22px rgba(79,70,229,.28)
+    }
+    .brand-title{font-weight:750;letter-spacing:.2px;white-space:nowrap}
+    .collapse-btn{
+      margin-left:auto;width:34px;height:34px;border:0;border-radius:10px;
+      background:transparent;color:var(--muted);-webkit-app-region:no-drag
+    }
+    .collapse-btn:hover,.icon-btn:hover{background:var(--panel-2);color:var(--text)}
+    .app.collapsed .brand-title,.app.collapsed .nav-text,.app.collapsed .section-title,
+    .app.collapsed .conversation-meta,.app.collapsed .settings-text,.app.collapsed .workspace-pill span{
+      display:none
+    }
+    .app.collapsed .brand{justify-content:center;padding:0}
+    .app.collapsed .collapse-btn{margin-left:0;position:absolute;top:15px;left:54px;width:26px;height:26px;background:var(--panel)}
+    .sidebar-main{padding:14px 12px;overflow:auto;flex:1}
+    .nav-item{
+      display:flex;align-items:center;gap:12px;
+      min-height:44px;padding:0 12px;border-radius:12px;
+      color:var(--muted);margin-bottom:6px;white-space:nowrap
+    }
+    .nav-item:hover,.nav-item.active{background:var(--panel-2);color:var(--text)}
+    .nav-item.primary{background:var(--accent);color:white}
+    .nav-item svg,.settings-row svg{flex:0 0 20px}
+    .section-title{
+      font-size:12px;color:var(--muted);padding:18px 12px 8px;text-transform:uppercase;letter-spacing:.08em
+    }
+    .conversation{
+      display:flex;gap:10px;padding:10px 12px;border-radius:12px;align-items:flex-start;margin-bottom:4px
+    }
+    .conversation:hover,.conversation.active{background:var(--panel-2)}
+    .conversation-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:7px;flex:0 0 auto}
+    .conversation-title{font-size:14px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .conversation-meta{font-size:11px;color:var(--muted);margin-top:3px}
+    .sidebar-footer{padding:12px;border-top:1px solid var(--line)}
+    .settings-row{
+      display:flex;align-items:center;gap:12px;min-height:44px;padding:0 12px;border-radius:12px;color:var(--muted)
+    }
+    .settings-row:hover{background:var(--panel-2);color:var(--text)}
+    .workspace-pill{
+      display:flex;align-items:center;gap:9px;padding:10px 12px;margin-top:8px;border:1px solid var(--line);
+      border-radius:12px;color:var(--text);font-size:13px;white-space:nowrap
+    }
+
+    .main{min-width:0;display:flex;flex-direction:column}
+    .topbar{
+      height:64px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 18px;
+      background:color-mix(in srgb,var(--panel) 88%, transparent);backdrop-filter:blur(16px);
+      -webkit-app-region:drag
+    }
+    .topbar-left,.topbar-right{display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag}
+    .topbar-left{min-width:0}
+    .topbar-right{margin-left:auto}
+    .icon-btn{
+      width:36px;height:36px;border:0;border-radius:10px;background:transparent;color:var(--muted);
+      display:grid;place-items:center
+    }
+    .thread-title{font-size:14px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .badge{
+      padding:6px 10px;border-radius:999px;background:var(--panel-2);font-size:12px;color:var(--muted)
+    }
+    .content{flex:1;min-height:0;position:relative;overflow:hidden}
+    .page{height:100%;display:none}
+    .page.active{display:flex}
+    .home{
+      align-items:center;justify-content:center;padding:36px;overflow:auto
+    }
+    .hero{width:min(920px,100%);text-align:center}
+    .hero-mark{
+      width:64px;height:64px;margin:0 auto 24px;border-radius:22px;
+      display:grid;place-items:center;background:linear-gradient(135deg,#4f46e5,#8b5cf6);
+      color:white;font-weight:800;font-size:24px;box-shadow:0 20px 44px rgba(79,70,229,.24)
+    }
+    h1{font-size:34px;margin:0 0 10px;letter-spacing:-.03em}
+    .hero p{margin:0;color:var(--muted);font-size:15px}
+    .composer{
+      width:min(820px,100%);margin:34px auto 0;background:var(--panel);border:1px solid var(--line);
+      border-radius:22px;padding:16px;box-shadow:var(--shadow);text-align:left
+    }
+    .composer textarea{
+      width:100%;height:104px;border:0;outline:0;resize:none;background:transparent;color:var(--text);
+      font-size:16px;line-height:1.6
+    }
+    .composer-footer{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .chip,.send-btn,.secondary-btn,.danger-btn{
+      border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:11px;padding:9px 12px
+    }
+    .chip{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:7px}
+    .send-btn{margin-left:auto;background:var(--accent);border-color:var(--accent);color:white;padding:9px 16px}
+    .quick-grid{
+      display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px auto 0;width:min(820px,100%)
+    }
+    .quick-card{
+      text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:15px;
+      color:var(--text)
+    }
+    .quick-card:hover{border-color:color-mix(in srgb,var(--accent) 50%,var(--line));transform:translateY(-1px)}
+    .quick-card b{display:block;margin-bottom:5px}
+    .quick-card span{font-size:12px;color:var(--muted)}
+
+    .chat-layout{width:100%;display:grid;grid-template-columns:1fr 0;transition:.25s ease}
+    .chat-layout.drawer-open{grid-template-columns:1fr 360px}
+    .chat-main{min-width:0;display:flex;flex-direction:column}
+    .messages{flex:1;overflow:auto;padding:26px max(24px,calc((100% - 850px)/2))}
+    .message{display:flex;gap:12px;margin-bottom:22px}
+    .avatar{
+      width:32px;height:32px;border-radius:10px;background:var(--panel-2);display:grid;place-items:center;
+      font-size:12px;font-weight:750;flex:0 0 auto
+    }
+    .avatar.ai{background:var(--accent);color:white}
+    .bubble{min-width:0;max-width:760px}
+    .author{font-size:13px;font-weight:700;margin-bottom:7px}
+    .bubble-content{line-height:1.7;font-size:14px}
+    .user .bubble-content{
+      background:var(--panel);border:1px solid var(--line);padding:12px 14px;border-radius:15px
+    }
+    .tool-card{
+      margin-top:12px;border:1px solid var(--line);background:var(--panel);border-radius:14px;overflow:hidden
+    }
+    .tool-head{padding:12px 14px;display:flex;align-items:center;gap:10px;font-size:13px}
+    .tool-status{width:8px;height:8px;border-radius:50%;background:var(--success)}
+    .tool-body{border-top:1px solid var(--line);padding:12px 14px;color:var(--muted);font-size:12px;line-height:1.7}
+    .diff{
+      margin-top:12px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#111827;color:#dce3ee
+    }
+    .diff-head{padding:10px 12px;background:#1f2937;font-size:12px}
+    .diff pre{margin:0;padding:14px;overflow:auto;font-size:12px;line-height:1.65}
+    .plus{color:#86efac}.minus{color:#fca5a5}
+    .chat-composer-wrap{padding:12px max(24px,calc((100% - 850px)/2)) 20px}
+    .chat-composer{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:12px;box-shadow:var(--shadow)}
+    .chat-composer textarea{width:100%;height:64px;resize:none;border:0;outline:0;background:transparent;color:var(--text)}
+    .right-drawer{border-left:1px solid var(--line);background:var(--panel);min-width:0;overflow:hidden}
+    .drawer-inner{width:360px;height:100%;display:flex;flex-direction:column}
+    .drawer-head{height:58px;padding:0 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;font-weight:700}
+    .drawer-tabs{display:flex;padding:10px 12px;gap:6px}
+    .drawer-tab{flex:1;border:0;background:var(--panel-2);border-radius:9px;padding:8px;color:var(--muted)}
+    .drawer-tab.active{background:var(--accent-soft);color:var(--accent)}
+    .drawer-list{padding:8px 14px;overflow:auto}
+    .file-row,.step-row{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;font-size:13px}
+    .file-row:hover,.step-row:hover{background:var(--panel-2)}
+    .status-ok{color:var(--success)} .status-wait{color:var(--warning)}
+
+    .settings-page{overflow:auto;padding:32px}
+    .settings-container{width:min(900px,100%);margin:auto}
+    .settings-container h2{margin:0 0 8px;font-size:26px}
+    .settings-sub{color:var(--muted);margin-bottom:24px}
+    .settings-card{
+      background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:20px;margin-bottom:16px
+    }
+    .settings-card h3{margin:0 0 16px;font-size:16px}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .form-field{display:flex;flex-direction:column;gap:7px}
+    .form-field.full{grid-column:1/-1}
+    .form-field label{font-size:12px;color:var(--muted)}
+    .form-field input,.form-field select{
+      border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:11px;padding:11px 12px;outline:none
+    }
+    .switch-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line)}
+    .switch-row:first-of-type{border-top:0}
+    .switch{width:44px;height:24px;border-radius:999px;background:var(--line);padding:3px}
+    .switch::after{content:"";display:block;width:18px;height:18px;border-radius:50%;background:white;transition:.2s}
+    .switch.on{background:var(--accent)}
+    .switch.on::after{transform:translateX(20px)}
+    .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+    .secondary-btn{background:var(--panel-2)}
+    .danger-btn{border-color:#f1caca;color:var(--danger)}
+
+    .modal-backdrop{
+      position:fixed;inset:0;background:rgba(8,10,14,.48);backdrop-filter:blur(6px);
+      display:none;align-items:center;justify-content:center;padding:20px;z-index:99
+    }
+    .modal-backdrop.show{display:flex}
+    .modal{
+      width:min(560px,100%);background:var(--panel);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);overflow:hidden
+    }
+    .modal-head{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center}
+    .warning-icon{
+      width:38px;height:38px;border-radius:12px;background:#fff5df;color:var(--warning);display:grid;place-items:center;font-weight:900
+    }
+    .modal-body{padding:20px}
+    .command-box{
+      margin-top:12px;background:#111827;color:#e5e7eb;border-radius:12px;padding:13px;font-family:Consolas,monospace;font-size:13px
+    }
+    .impact{margin-top:14px;padding:12px;border-radius:12px;background:var(--panel-2);color:var(--muted);font-size:13px}
+    .modal-actions{display:flex;gap:9px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--line)}
+
+    .toast{
+      position:fixed;right:20px;bottom:20px;background:var(--text);color:var(--panel);padding:12px 16px;border-radius:12px;
+      opacity:0;transform:translateY(10px);pointer-events:none;transition:.2s;z-index:120
+    }
+    .toast.show{opacity:1;transform:translateY(0)}
+    @media(max-width:900px){
+      :root{--sidebar:230px}
+      .quick-grid{grid-template-columns:1fr}
+      .chat-layout.drawer-open{grid-template-columns:1fr}
+      .right-drawer{position:absolute;right:0;top:0;bottom:0;width:360px;box-shadow:var(--shadow);z-index:10}
+      .form-grid{grid-template-columns:1fr}
+      .form-field.full{grid-column:auto}
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">TX</div>
+        <div class="brand-title">TieX</div>
+        <button class="collapse-btn" id="collapseBtn" title="收起侧边栏">☰</button>
+      </div>
+
+      <div class="sidebar-main">
+        <div class="nav-item primary" data-page="home">
+          <span>＋</span><span class="nav-text">新对话</span>
+        </div>
+
+        <div class="workspace-pill">
+          <span>📁</span><span>当前工作区：TieX</span>
+        </div>
+
+        <div class="section-title">最近会话</div>
+
+        <div class="conversation active" data-page="chat">
+          <div class="conversation-dot"></div>
+          <div class="conversation-meta">
+            <div class="conversation-title">完善工作区权限设计</div>
+            <div class="conversation-meta">刚刚 · TieX</div>
+          </div>
+        </div>
+        <div class="conversation" data-page="chat">
+          <div class="conversation-dot" style="background:#20a36a"></div>
+          <div class="conversation-meta">
+            <div class="conversation-title">生成项目 README</div>
+            <div class="conversation-meta">昨天 · 智组 Campus</div>
+          </div>
+        </div>
+        <div class="conversation" data-page="chat">
+          <div class="conversation-dot" style="background:#d28a16"></div>
+          <div class="conversation-meta">
+            <div class="conversation-title">制作课程答辩 PPT</div>
+            <div class="conversation-meta">6 月 20 日 · 未绑定工作区</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="settings-row" data-page="settings">
+          <span>⚙</span><span class="settings-text">设置</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn" title="返回">←</button>
+          <button class="icon-btn" title="前进">→</button>
+          <div class="thread-title" id="threadTitle">新对话</div>
+        </div>
+        <div class="topbar-right">
+          <span class="badge">DeepSeek</span>
+          <button class="icon-btn" id="themeBtn" title="切换主题">◐</button>
+          <button class="icon-btn" id="drawerBtn" title="任务详情">☷</button>
+        </div>
+      </header>
+
+      <section class="content">
+        <section class="page home active" id="page-home">
+          <div class="hero">
+            <div class="hero-mark">TX</div>
+            <h1>我们来完成什么？</h1>
+            <p>连接 DeepSeek，在受限工作区内安全完成任务。</p>
+
+            <div class="composer">
+              <textarea id="homeInput" placeholder="描述你想让 TieX 完成的任务……"></textarea>
+              <div class="composer-footer">
+                <button class="chip">＋ 添加文件</button>
+                <button class="chip" id="permissionChip">🛡 读取模式</button>
+                <button class="chip">◈ DeepSeek</button>
+                <button class="chip">📁 TieX</button>
+                <button class="send-btn" id="startTaskBtn">开始任务</button>
+              </div>
+            </div>
+
+            <div class="quick-grid">
+              <button class="quick-card" data-fill="阅读当前工作区并总结项目结构">
+                <b>分析项目</b><span>读取工作区并说明目录结构</span>
+              </button>
+              <button class="quick-card" data-fill="根据当前项目生成一份 README.md">
+                <b>生成文档</b><span>创建 Markdown 或 Word 文档</span>
+              </button>
+              <button class="quick-card" data-fill="根据现有资料生成一份 8 页项目介绍 PPT">
+                <b>制作 PPT</b><span>根据材料生成演示文稿</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" id="page-chat">
+          <div class="chat-layout" id="chatLayout">
+            <div class="chat-main">
+              <div class="messages">
+                <div class="message user">
+                  <div class="avatar">我</div>
+                  <div class="bubble">
+                    <div class="author">你</div>
+                    <div class="bubble-content">检查当前项目的工作区权限实现，并补充路径安全校验。</div>
+                  </div>
+                </div>
+
+                <div class="message">
+                  <div class="avatar ai">TX</div>
+                  <div class="bubble">
+                    <div class="author">TieX</div>
+                    <div class="bubble-content">
+                      我会先读取当前工作区中的权限与文件工具实现，再给出修改方案。现阶段仅执行读取操作。
+                      <div class="tool-card">
+                        <div class="tool-head">
+                          <span class="tool-status"></span>
+                          <b>读取工作区文件</b>
+                          <span style="margin-left:auto;color:var(--muted)">已完成</span>
+                        </div>
+                        <div class="tool-body">
+                          已读取：<br>
+                          electron/main/services/permission.ts<br>
+                          electron/main/tools/read-file.ts<br>
+                          electron/main/utils/path-safe.ts
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="message">
+                  <div class="avatar ai">TX</div>
+                  <div class="bubble">
+                    <div class="author">TieX</div>
+                    <div class="bubble-content">
+                      当前实现只检查了路径前缀，尚未处理符号链接绕过和 UNC 网络路径。我建议补充统一的安全路径解析函数，并在所有文件工具调用前使用。
+                      <div class="diff">
+                        <div class="diff-head">electron/main/utils/path-safe.ts</div>
+                        <pre><span class="minus">- const resolved = path.resolve(workspace, target)</span>
+<span class="plus">+ const resolved = await fs.realpath(path.resolve(workspace, target))</span>
+<span class="plus">+ assertInsideWorkspace(workspace, resolved)</span>
+<span class="plus">+ rejectUncPath(resolved)</span></pre>
+                      </div>
+                      <button class="secondary-btn" id="permissionBtn" style="margin-top:12px">请求应用修改</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="chat-composer-wrap">
+                <div class="chat-composer">
+                  <textarea placeholder="继续描述任务，或补充要求……"></textarea>
+                  <div class="composer-footer">
+                    <button class="chip">＋</button>
+                    <button class="chip">🛡 执行模式</button>
+                    <button class="chip">◈ DeepSeek</button>
+                    <button class="send-btn">发送</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <aside class="right-drawer">
+              <div class="drawer-inner">
+                <div class="drawer-head">任务详情</div>
+                <div class="drawer-tabs">
+                  <button class="drawer-tab active">步骤</button>
+                  <button class="drawer-tab">文件</button>
+                  <button class="drawer-tab">日志</button>
+                </div>
+                <div class="drawer-list">
+                  <div class="step-row"><span class="status-ok">✓</span><span>分析任务</span></div>
+                  <div class="step-row"><span class="status-ok">✓</span><span>读取权限服务</span></div>
+                  <div class="step-row"><span class="status-ok">✓</span><span>检查路径校验</span></div>
+                  <div class="step-row"><span class="status-wait">●</span><span>等待修改授权</span></div>
+                  <div class="section-title">相关文件</div>
+                  <div class="file-row">📄 permission.ts</div>
+                  <div class="file-row">📄 read-file.ts</div>
+                  <div class="file-row">📄 path-safe.ts</div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page settings-page" id="page-settings">
+          <div class="settings-container">
+            <h2>设置</h2>
+            <div class="settings-sub">配置模型、权限与本地数据。终于到了所有软件都躲不过去的齿轮页面。</div>
+
+            <div class="settings-card">
+              <h3>DeepSeek API</h3>
+              <div class="form-grid">
+                <div class="form-field">
+                  <label>服务商</label>
+                  <select><option>DeepSeek</option></select>
+                </div>
+                <div class="form-field">
+                  <label>模型名称</label>
+                  <input value="deepseek-chat" />
+                </div>
+                <div class="form-field full">
+                  <label>Base URL</label>
+                  <input value="https://api.deepseek.com" />
+                </div>
+                <div class="form-field full">
+                  <label>API Key</label>
+                  <input type="password" value="sk-demo-key" />
+                </div>
+              </div>
+              <div class="actions">
+                <button class="secondary-btn" id="testApiBtn">测试连接</button>
+                <button class="send-btn">保存配置</button>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <h3>任务与权限</h3>
+              <div class="switch-row"><span>修改文件前请求确认</span><div class="switch on"></div></div>
+              <div class="switch-row"><span>执行命令前请求确认</span><div class="switch on"></div></div>
+              <div class="switch-row"><span>修改文件前自动备份</span><div class="switch on"></div></div>
+              <div class="switch-row"><span>允许访问工作区外路径</span><div class="switch"></div></div>
+            </div>
+
+            <div class="settings-card">
+              <h3>外观</h3>
+              <div class="form-grid">
+                <div class="form-field">
+                  <label>主题</label>
+                  <select><option>跟随系统</option><option>浅色</option><option>深色</option></select>
+                </div>
+                <div class="form-field">
+                  <label>默认侧边栏</label>
+                  <select><option>展开</option><option>收起</option></select>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <h3>本地数据</h3>
+              <div class="switch-row"><span>数据目录</span><span style="color:var(--muted)">%APPDATA%\TieX</span></div>
+              <div class="actions">
+                <button class="secondary-btn">打开目录</button>
+                <button class="danger-btn">清除全部数据</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="permissionModal">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="warning-icon">!</div>
+        <div>
+          <b>需要你的授权</b>
+          <div style="color:var(--muted);font-size:12px;margin-top:4px">TieX 准备修改当前工作区文件</div>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div><b>操作原因</b></div>
+        <p style="color:var(--muted);font-size:13px">补充路径安全校验，阻止符号链接和网络路径绕过。</p>
+        <div><b>目标文件</b></div>
+        <div class="command-box">electron/main/utils/path-safe.ts</div>
+        <div class="impact">影响：将修改 1 个文件。修改前会自动创建备份，可在任务详情中撤销。</div>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-btn" id="denyBtn">拒绝</button>
+        <button class="secondary-btn" id="allowTaskBtn">本次任务内允许</button>
+        <button class="send-btn" id="allowOnceBtn">允许一次</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">操作已完成</div>
+
+  <script>
+    const app = document.getElementById('app');
+    const pages = [...document.querySelectorAll('.page')];
+    const threadTitle = document.getElementById('threadTitle');
+    const chatLayout = document.getElementById('chatLayout');
+    const modal = document.getElementById('permissionModal');
+    const toast = document.getElementById('toast');
+
+    function showPage(name){
+      pages.forEach(p => p.classList.remove('active'));
+      document.getElementById('page-' + name).classList.add('active');
+      threadTitle.textContent = name === 'home' ? '新对话' : name === 'settings' ? '设置' : '完善工作区权限设计';
+    }
+
+    document.getElementById('collapseBtn').onclick = () => app.classList.toggle('collapsed');
+    document.getElementById('themeBtn').onclick = () => document.body.classList.toggle('dark');
+    document.getElementById('drawerBtn').onclick = () => chatLayout.classList.toggle('drawer-open');
+
+    document.querySelectorAll('[data-page]').forEach(el => {
+      el.addEventListener('click', () => showPage(el.dataset.page));
+    });
+
+    document.querySelectorAll('[data-fill]').forEach(el => {
+      el.addEventListener('click', () => {
+        document.getElementById('homeInput').value = el.dataset.fill;
+      });
+    });
+
+    document.getElementById('startTaskBtn').onclick = () => {
+      showPage('chat');
+      chatLayout.classList.add('drawer-open');
+    };
+
+    document.getElementById('permissionBtn').onclick = () => modal.classList.add('show');
+    document.getElementById('denyBtn').onclick = () => {
+      modal.classList.remove('show'); showToast('已拒绝该操作');
+    };
+    document.getElementById('allowTaskBtn').onclick = () => {
+      modal.classList.remove('show'); showToast('本次任务内已允许');
+    };
+    document.getElementById('allowOnceBtn').onclick = () => {
+      modal.classList.remove('show'); showToast('已允许一次并创建备份');
+    };
+    document.getElementById('testApiBtn').onclick = () => showToast('模拟连接成功：DeepSeek API 可用');
+    modal.addEventListener('click', e => { if(e.target === modal) modal.classList.remove('show'); });
+
+    function showToast(text){
+      toast.textContent = text;
+      toast.classList.add('show');
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(()=>toast.classList.remove('show'),1800);
+    }
+  </script>
+</body>
+</html>

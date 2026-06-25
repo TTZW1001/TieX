@@ -1,0 +1,54 @@
+appId: com.tiex.desktop
+productName: TieX
+copyright: Copyright © 2024 TieX
+
+directories:
+  buildResources: resources
+  output: release
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - "!**/node_modules/**/{CHANGELOG.md,README.md,README,readme.md,readme}"
+  - "!**/node_modules/**/{test,__tests__,tests,powered-test,example,examples}"
+  - "!**/node_modules/*.d.ts"
+  - "!**/node_modules/.cache"
+
+extraMetadata:
+  main: dist-electron/main/index.js
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: icon.png
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: TieX
+  artifactName: TieX-Setup-${version}.${ext}
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: icon.png
+  category: public.app-category.developer-tools
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: resources/icons
+  category: Development
+
+npmRebuild: true

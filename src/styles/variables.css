@@ -1,0 +1,171 @@
+/* ============================================
+   TieX 主题变量
+   配色参考 Claude.com 编辑风格：
+   - 浅色：暖奶油画布 + 深色面板混合
+   - 深色：深色画布 + 编辑深色面板
+   ============================================ */
+
+:root {
+  /* —— 画布与表面 —— */
+  --bg: #faf9f5;
+  --canvas: #faf9f5;
+  --panel: rgba(255, 252, 246, 0.92);
+  --panel-2: #f4eee0;
+  --panel-3: #ebe5d4;
+  --surface-soft: #f5f0e8;
+
+  /* —— 深色产品表面（代码块、终端、模型卡） —— */
+  --surface-dark: #181715;
+  --surface-dark-elevated: #252320;
+  --surface-dark-soft: #1f1e1b;
+  --surface-dark-text: #faf9f5;
+  --surface-dark-text-soft: #a09d96;
+  --code-bg: #1d1d1b;
+  --code-text: #e5e7eb;
+  --code-border: rgba(255, 255, 255, 0.08);
+
+  /* —— 侧边栏 / 顶栏（浅色：暖奶油表面） —— */
+  --sidebar-bg: #f4eee0;
+  --sidebar-border: #e6dfd0;
+  --sidebar-text: #1a1918;
+  --sidebar-text-soft: #4a4842;
+  --sidebar-text-muted: #6a6760;
+  --sidebar-text-faint: #8a857c;
+  --sidebar-item-hover: rgba(204, 120, 92, 0.1);
+  --sidebar-item-active: rgba(204, 120, 92, 0.16);
+  --sidebar-pill-bg: #ebe5d4;
+  --sidebar-divider: #e6dfd0;
+  --topbar-bg: #f4eee0;
+  --topbar-text: #1a1918;
+  --topbar-text-soft: #6a6760;
+  --topbar-pill-bg: #ebe5d4;
+
+  /* —— 文本 —— */
+  --text: #141413;
+  --text-strong: #252523;
+  --body: #3d3d3a;
+  --muted: #6c6a64;
+  --muted-soft: #8e8b82;
+  --on-primary: #ffffff;
+
+  /* —— 描边 —— */
+  --line: #e6dfd8;
+  --line-soft: #ebe6df;
+
+  /* —— 强调色（Coral） —— */
+  --accent: #cc785c;
+  --accent-active: #a9583e;
+  --accent-soft: rgba(204, 120, 92, 0.12);
+  --on-accent: #ffffff;
+
+  /* —— 语义色 —— */
+  --success: #5db872;
+  --success-soft: rgba(93, 184, 114, 0.12);
+  --success-strong: #16a34a;
+  --warning: #d4a017;
+  --warning-soft: #fff5df;
+  --warning-strong: #d97706;
+  --danger: #c64545;
+  --danger-soft: #fef2f2;
+  --danger-strong: #dc2626;
+  --info: #4b6bff;
+
+  /* —— Diff 行背景 —— */
+  --diff-add-bg: #e6ffed;
+  --diff-add-text: #0a5226;
+  --diff-remove-bg: #ffeef0;
+  --diff-remove-text: #8a1a1a;
+  --diff-context-bg: transparent;
+  --diff-line-num: #8e8b82;
+  --diff-header-bg: #f5f0e8;
+  --diff-header-text: #141413;
+
+  /* —— 阴影 —— */
+  --shadow: 0 18px 38px rgba(34, 23, 15, 0.08);
+  --shadow-soft: 0 8px 18px rgba(34, 23, 15, 0.06);
+
+  /* —— 形态 —— */
+  --radius: 20px;
+  --radius-lg: 28px;
+  --sidebar-width: 296px;
+  --sidebar-collapsed: 72px;
+  --topbar-height: 72px;
+}
+
+[data-theme='dark'] {
+  /* —— 画布与表面 —— */
+  --bg: #111110;
+  --canvas: #111110;
+  --panel: rgba(24, 23, 21, 0.94);
+  --panel-2: #1d1b19;
+  --panel-3: #252320;
+  --surface-soft: #171513;
+
+  /* —— 深色产品表面（与浅色相同） —— */
+  --surface-dark: #181715;
+  --surface-dark-elevated: #252320;
+  --surface-dark-soft: #1f1e1b;
+  --surface-dark-text: #faf9f5;
+  --surface-dark-text-soft: #a09d96;
+  --code-bg: #1a1a17;
+  --code-text: #e5e7eb;
+  --code-border: rgba(255, 255, 255, 0.08);
+
+  /* —— 侧边栏 / 顶栏（深色模式更黑一点） —— */
+  --sidebar-bg: linear-gradient(180deg, #15191a, #0f1314);
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-text: #f5f2eb;
+  --sidebar-text-soft: #c8c4ba;
+  --sidebar-text-muted: #9a9690;
+  --sidebar-text-faint: #75716a;
+  --sidebar-item-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-item-active: rgba(255, 255, 255, 0.14);
+  --sidebar-pill-bg: rgba(255, 255, 255, 0.06);
+  --sidebar-divider: rgba(255, 255, 255, 0.08);
+  --topbar-bg: #15191a;
+  --topbar-text: #f5f2eb;
+  --topbar-text-soft: #9a9690;
+  --topbar-pill-bg: rgba(255, 255, 255, 0.06);
+
+  /* —— 文本 —— */
+  --text: #faf9f5;
+  --text-strong: #f4efe7;
+  --body: #d8d4cb;
+  --muted: #a09d96;
+  --muted-soft: #8e8b82;
+
+  /* —— 描边 —— */
+  --line: rgba(230, 223, 216, 0.1);
+  --line-soft: rgba(230, 223, 216, 0.06);
+
+  /* —— 强调色 —— */
+  --accent: #cc785c;
+  --accent-active: #d88d74;
+  --accent-soft: rgba(204, 120, 92, 0.14);
+
+  /* —— 语义色（深色模式） —— */
+  --success: #5db872;
+  --success-soft: rgba(93, 184, 114, 0.16);
+  --success-strong: #4ade80;
+  --warning: #d4a017;
+  --warning-soft: #3a2a10;
+  --warning-strong: #fbbf24;
+  --danger: #c64545;
+  --danger-soft: #3a1010;
+  --danger-strong: #f87171;
+  --info: #4b6bff;
+
+  /* —— Diff 行背景（深色） —— */
+  --diff-add-bg: #0a3a1a;
+  --diff-add-text: #4ade80;
+  --diff-remove-bg: #3a1010;
+  --diff-remove-text: #f87171;
+  --diff-context-bg: transparent;
+  --diff-line-num: #6c6a64;
+  --diff-header-bg: #1d1b19;
+  --diff-header-text: #faf9f5;
+
+  /* —— 阴影 —— */
+  --shadow: 0 24px 54px rgba(0, 0, 0, 0.34);
+  --shadow-soft: 0 12px 24px rgba(0, 0, 0, 0.2);
+}
