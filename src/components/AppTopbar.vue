@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app.store'
 import { useConversationStore } from '@/stores/conversation.store'
-import { useSettingsStore } from '@/stores/settings.store'
 import { useUiStore } from '@/stores/ui.store'
 import { ArrowLeft, ArrowRight, Sun, Moon, Minus, Square, X, PanelRightClose, PanelRightOpen } from 'lucide-vue-next'
 
@@ -11,12 +10,7 @@ const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
 const conversationStore = useConversationStore()
-const settingsStore = useSettingsStore()
 const uiStore = useUiStore()
-
-const currentConversation = computed(() =>
-  conversationStore.conversations.find((c) => c.id === conversationStore.currentConversationId)
-)
 
 const pageTitle = computed(() => {
   if (route.name === 'home') return '新对话'
@@ -73,21 +67,7 @@ function closeWindow() {
   window.tiex.window.close()
 }
 
-async function changeConversationProvider(event: Event) {
-  const target = event.target as HTMLSelectElement | null
-  const conversationId = conversationStore.currentConversationId
-  if (!target || !conversationId) return
-  await conversationStore.updateConversationProvider(conversationId, target.value || null)
-  await conversationStore.loadConversations()
-}
-
 const drawerIcon = computed(() => (uiStore.drawerOpen ? PanelRightClose : PanelRightOpen))
-
-const modelIndicator = computed(() => {
-  const providerId = currentConversation.value?.provider_id
-  const provider = settingsStore.providers.find((item) => item.id === providerId)
-  return provider?.model_name || settingsStore.modelName || 'DeepSeek'
-})
 </script>
 
 <template>
@@ -105,20 +85,6 @@ const modelIndicator = computed(() => {
       </div>
     </div>
     <div class="topbar-right">
-      <div class="model-indicator">
-        <span class="model-label">模型</span>
-        <span class="model-value">{{ modelIndicator }}</span>
-      </div>
-      <select
-        v-if="route.name === 'conversation' && currentConversation"
-        class="provider-select"
-        :value="currentConversation.provider_id ?? settingsStore.providerId ?? ''"
-        @change="changeConversationProvider"
-      >
-        <option v-for="item in settingsStore.providers" :key="item.id" :value="item.id">
-          {{ item.name }}
-        </option>
-      </select>
       <button class="nav-btn" :title="uiStore.drawerOpen ? '收起任务面板' : '打开任务面板'" @click="uiStore.toggleDrawer">
         <component :is="drawerIcon" :size="16" />
       </button>
@@ -215,40 +181,6 @@ const modelIndicator = computed(() => {
   color: var(--topbar-text);
 }
 
-.model-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid var(--sidebar-border);
-  background: color-mix(in srgb, var(--topbar-pill-bg) 96%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--topbar-text) 6%, transparent);
-}
-
-.provider-select {
-  min-height: 38px;
-  border-radius: 999px;
-  border: 1px solid var(--sidebar-border);
-  background: color-mix(in srgb, var(--topbar-pill-bg) 96%, transparent);
-  color: var(--topbar-text);
-  padding: 0 14px;
-}
-
-.model-label {
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--topbar-text-soft) 88%, var(--topbar-text));
-}
-
-.model-value {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--topbar-text);
-}
-
 .window-controls {
   display: flex;
   align-items: center;
@@ -284,8 +216,5 @@ const modelIndicator = computed(() => {
     display: none;
   }
 
-  .model-label {
-    display: none;
-  }
 }
 </style>

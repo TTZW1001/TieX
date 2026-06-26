@@ -104,6 +104,16 @@ export class ConversationRepository {
     )
   }
 
+  updatePermissionMode(id: string, permissionMode: string): void {
+    const db = getDatabase()
+    const now = new Date().toISOString()
+    db.prepare('UPDATE conversations SET permission_mode = ?, updated_at = ? WHERE id = ?').run(
+      permissionMode,
+      now,
+      id,
+    )
+  }
+
   branchFromMessage(conversationId: string, messageId: string): Conversation {
     const conversation = this.getById(conversationId)
     if (!conversation) {

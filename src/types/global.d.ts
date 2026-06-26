@@ -459,6 +459,7 @@ export interface TieXDesktopAPI {
     getById: (id: string) => Promise<ConversationInfo | null>
     updateTitle: (id: string, title: string) => Promise<void>
     updateProvider: (id: string, providerId: string | null) => Promise<void>
+    updatePermissionMode: (id: string, permissionMode: string) => Promise<void>
     branchFromMessage: (conversationId: string, messageId: string) => Promise<ConversationInfo>
     delete: (id: string) => Promise<{ ok: boolean; error?: string }>
   }

@@ -2,6 +2,7 @@
   "name": "tiex",
   "version": "1.0.0",
   "description": "TieX - Windows 本地桌面 AI 智能体工作台",
+  "author": "TieX",
   "main": "dist-electron/main/index.js",
   "scripts": {
     "postinstall": "npm run rebuild:node",
@@ -25,6 +26,8 @@
     "dist": "electron-builder"
   },
   "dependencies": {
+    "@langchain/core": "^1.2.1",
+    "@langchain/langgraph": "^1.4.7",
     "better-sqlite3": "^12.11.1",
     "docx": "^9.7.1",
     "fast-glob": "^3.3.3",
@@ -34,7 +37,8 @@
     "pptxgenjs": "^4.0.1",
     "shiki": "^4.2.0",
     "vue": "^3.4.21",
-    "vue-router": "^4.3.0"
+    "vue-router": "^4.3.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

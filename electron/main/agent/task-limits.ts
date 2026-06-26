@@ -1,7 +1,7 @@
 /**
  * Task Limits - 任务限制管理
  */
-import type { TaskLimits as TaskLimitsConfig } from './agent-runtime'
+import type { TaskLimits as TaskLimitsConfig } from './task-controller'
 import { SettingsRepository } from '../database/repositories/settings.repository'
 
 /** 默认任务限制 */

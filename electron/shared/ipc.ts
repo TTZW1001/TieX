@@ -22,6 +22,7 @@ export const IPC_CONVERSATION_GET_RECENT = 'conversation:getRecent'
 export const IPC_CONVERSATION_GET_BY_ID = 'conversation:getById'
 export const IPC_CONVERSATION_UPDATE_TITLE = 'conversation:updateTitle'
 export const IPC_CONVERSATION_UPDATE_PROVIDER = 'conversation:updateProvider'
+export const IPC_CONVERSATION_UPDATE_PERMISSION_MODE = 'conversation:updatePermissionMode'
 export const IPC_CONVERSATION_BRANCH_FROM_MESSAGE = 'conversation:branchFromMessage'
 export const IPC_CONVERSATION_DELETE = 'conversation:delete'
 

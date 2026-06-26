@@ -5,6 +5,7 @@ import {
   IPC_CONVERSATION_GET_BY_ID,
   IPC_CONVERSATION_UPDATE_TITLE,
   IPC_CONVERSATION_UPDATE_PROVIDER,
+  IPC_CONVERSATION_UPDATE_PERMISSION_MODE,
   IPC_CONVERSATION_BRANCH_FROM_MESSAGE,
   IPC_CONVERSATION_DELETE,
 } from '../../shared/ipc'
@@ -64,6 +65,19 @@ export function registerConversationIpc(): void {
         throw new Error('Invalid conversation id')
       }
       conversationRepo.updateProvider(id, providerId)
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CONVERSATION_UPDATE_PERMISSION_MODE,
+    async (_event, id: string, permissionMode: string) => {
+      if (!id || typeof id !== 'string') {
+        throw new Error('Invalid conversation id')
+      }
+      if (!['chat', 'read', 'execute', 'command'].includes(permissionMode)) {
+        throw new Error('Invalid permission mode')
+      }
+      conversationRepo.updatePermissionMode(id, permissionMode)
     }
   )
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { FolderOpen, Paperclip, Send, Square, X } from 'lucide-vue-next'
+import { FolderOpen, Paperclip, Send, SlidersHorizontal, Square, X } from 'lucide-vue-next'
 import { useChatStore } from '@/stores/chat.store'
 import { useConversationStore } from '@/stores/conversation.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
@@ -18,6 +18,7 @@ const settingsStore = useSettingsStore()
 const inputText = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const attachments = ref<Array<{ path: string; name: string; mimeType: string | null; size: number | null }>>([])
+const showSessionConfig = ref(false)
 
 const showStopButton = computed(() => taskStore.isRunning || chatStore.isStreaming)
 
@@ -44,9 +45,11 @@ const statusText = computed(() => {
 })
 
 const canSend = computed(() => (!!inputText.value.trim() || attachments.value.length > 0) && !showStopButton.value)
+const currentConversation = computed(() =>
+  conversationStore.conversations.find((item) => item.id === conversationStore.currentConversationId) ?? null
+)
 const currentProvider = computed(() => {
-  const conversation = conversationStore.conversations.find((item) => item.id === conversationStore.currentConversationId)
-  const provider = settingsStore.providers.find((item) => item.id === (conversation?.provider_id ?? settingsStore.providerId))
+  const provider = settingsStore.providers.find((item) => item.id === (currentConversation.value?.provider_id ?? settingsStore.providerId))
   return provider ?? null
 })
 const canAttach = computed(() => {
@@ -58,6 +61,26 @@ const canAttach = computed(() => {
 const attachmentLabel = computed(() => {
   if (attachments.value.length === 0) return '添加附件'
   return `已附加 ${attachments.value.length} 个文件`
+})
+const currentPermissionMode = computed(() => {
+  if (!workspaceStore.hasWorkspace) return 'chat'
+  const mode = currentConversation.value?.permission_mode
+  if (mode === 'read' || mode === 'execute' || mode === 'command') return mode
+  return settingsStore.defaultPermissionMode
+})
+const permissionModeHint = computed(() => {
+  if (!workspaceStore.hasWorkspace) return '未绑定工作区时仅聊天，不会调用本地工具。'
+  if (currentPermissionMode.value === 'read') return '只读查看工作区，不改文件，也不执行命令。'
+  if (currentPermissionMode.value === 'execute') return '允许读写文件；是否弹确认由“修改文件前请求确认”决定。'
+  if (currentPermissionMode.value === 'command') {
+    return '允许读写文件并执行命令；是否弹确认由下面两个确认开关决定。'
+  }
+  return '当前是纯聊天模式。'
+})
+const providerModelLabel = computed(() => {
+  const provider = currentProvider.value
+  if (!provider) return '未选择模型服务'
+  return `${provider.name} · ${provider.model_name}`
 })
 
 watch(
@@ -136,6 +159,29 @@ function handleFileChange(event: Event) {
     })
     .filter((file) => !!file.path)
 }
+
+function toggleSessionConfig() {
+  showSessionConfig.value = !showSessionConfig.value
+}
+
+async function changeConversationProvider(event: Event) {
+  const target = event.target as HTMLSelectElement | null
+  const conversationId = conversationStore.currentConversationId
+  if (!target || !conversationId) return
+  await conversationStore.updateConversationProvider(conversationId, target.value || null)
+  await conversationStore.loadConversations()
+  showSessionConfig.value = true
+}
+
+async function changePermissionMode(event: Event) {
+  const target = event.target as HTMLSelectElement | null
+  const conversationId = conversationStore.currentConversationId
+  if (!target || !conversationId) return
+  const nextMode = target.value as 'chat' | 'read' | 'execute' | 'command'
+  await conversationStore.updateConversationPermissionMode(conversationId, nextMode)
+  await conversationStore.loadConversations()
+  showSessionConfig.value = true
+}
 </script>
 
 <template>
@@ -160,6 +206,41 @@ function handleFileChange(event: Event) {
             <FolderOpen :size="14" />
             {{ workspaceStore.hasWorkspace ? workspaceStore.currentWorkspaceName : '选择工作区' }}
           </button>
+          <div v-if="currentConversation" class="session-config-wrap">
+            <button class="chip session-config-trigger" @click="toggleSessionConfig">
+              <SlidersHorizontal :size="14" />
+              会话设置
+            </button>
+            <div v-if="showSessionConfig" class="session-config-popover">
+              <div class="session-config-head">
+                <span>当前会话设置</span>
+                <button class="popover-close" @click="showSessionConfig = false">
+                  <X :size="12" />
+                </button>
+              </div>
+              <label class="composer-select-field session-field">
+                <span class="field-label">模型服务</span>
+                <select class="composer-select" :value="currentConversation.provider_id ?? settingsStore.providerId ?? ''" @change="changeConversationProvider">
+                  <option v-for="item in settingsStore.providers" :key="item.id" :value="item.id">
+                    {{ item.name }}
+                  </option>
+                </select>
+              </label>
+              <div class="composer-model-pill session-model-pill" :title="providerModelLabel">
+                {{ providerModelLabel }}
+              </div>
+              <label class="composer-select-field session-field">
+                <span class="field-label">权限模式</span>
+                <select class="composer-select" :value="currentPermissionMode" @change="changePermissionMode" :disabled="!workspaceStore.hasWorkspace">
+                  <option value="chat">聊天</option>
+                  <option value="read">只读</option>
+                  <option value="execute">改文件</option>
+                  <option value="command">命令执行</option>
+                </select>
+              </label>
+              <div class="session-hint">{{ permissionModeHint }}</div>
+            </div>
+          </div>
           <button class="chip attachment-chip" :class="{ disabled: !canAttach }" @click="triggerAttachmentPicker">
             <Paperclip :size="14" />
             {{ canAttach ? attachmentLabel : '当前模型不支持附件' }}
@@ -273,6 +354,114 @@ function handleFileChange(event: Event) {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.session-config-wrap {
+  position: relative;
+}
+
+.composer-select-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 2px;
+}
+
+.session-config-popover {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  z-index: 20;
+  width: min(320px, calc(100vw - 56px));
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  box-shadow: var(--shadow-pop);
+  backdrop-filter: blur(18px);
+}
+
+.session-config-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.popover-close {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+
+.popover-close:hover {
+  background: color-mix(in srgb, var(--panel-2) 86%, transparent);
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.session-field {
+  width: 100%;
+  justify-content: space-between;
+  padding: 0;
+  margin-top: 10px;
+}
+
+.field-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.composer-select {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--text);
+}
+
+.composer-select:disabled {
+  opacity: 0.55;
+}
+
+.composer-model-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--text-strong);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.session-model-pill {
+  width: 100%;
+  max-width: none;
+  margin-top: 10px;
+}
+
+.session-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 .attachment-hint {

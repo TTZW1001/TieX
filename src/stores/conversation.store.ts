@@ -79,6 +79,25 @@ export const useConversationStore = defineStore('conversation', () => {
     }
   }
 
+  async function updateConversationPermissionMode(
+    id: string,
+    permissionMode: 'chat' | 'read' | 'execute' | 'command'
+  ): Promise<boolean> {
+    if (!window.tiex) return false
+    try {
+      await window.tiex.conversation.updatePermissionMode(id, permissionMode)
+      const conv = conversations.value.find((item) => item.id === id)
+      if (conv) {
+        conv.permission_mode = permissionMode
+        conv.updated_at = new Date().toISOString()
+      }
+      return true
+    } catch (err) {
+      console.error('Failed to update conversation permission mode:', err)
+      return false
+    }
+  }
+
   function setCurrentConversation(id: string | null) {
     currentConversationId.value = id
   }
@@ -135,6 +154,7 @@ export const useConversationStore = defineStore('conversation', () => {
     branchConversation,
     deleteConversation,
     updateConversationProvider,
+    updateConversationPermissionMode,
     setCurrentConversation,
     updateConversationTitle,
     renameConversation,

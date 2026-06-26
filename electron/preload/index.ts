@@ -47,6 +47,8 @@ const api = {
       ipcRenderer.invoke('conversation:updateTitle', id, title),
     updateProvider: (id: string, providerId: string | null): Promise<void> =>
       ipcRenderer.invoke('conversation:updateProvider', id, providerId),
+    updatePermissionMode: (id: string, permissionMode: string): Promise<void> =>
+      ipcRenderer.invoke('conversation:updatePermissionMode', id, permissionMode),
     branchFromMessage: (conversationId: string, messageId: string): Promise<any> =>
       ipcRenderer.invoke('conversation:branchFromMessage', conversationId, messageId),
     delete: (id: string): Promise<{ ok: boolean; error?: string }> =>
