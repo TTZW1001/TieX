@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useChatStore } from '@/stores/chat.store'
 import { useConversationStore } from '@/stores/conversation.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
-import { FolderOpen, Plus, Send, Shield, Cpu, GitBranch, Monitor } from 'lucide-vue-next'
+import { FolderOpen, Send } from 'lucide-vue-next'
 
 const router = useRouter()
 const chatStore = useChatStore()
@@ -12,9 +12,9 @@ const conversationStore = useConversationStore()
 const workspaceStore = useWorkspaceStore()
 
 const inputText = ref('')
-
-const currentWorkspaceLabel = computed(() => workspaceStore.currentWorkspaceName)
-const currentModeLabel = computed(() => (workspaceStore.hasWorkspace ? '本地模式' : '对话模式'))
+const canCreateConversation = computed(() => !!inputText.value.trim())
+const workspaceLabel = computed(() => (workspaceStore.hasWorkspace ? workspaceStore.currentWorkspaceName : '选择工作区'))
+const statusLabel = computed(() => (workspaceStore.hasWorkspace ? '已连接本地工作区' : '未绑定工作区'))
 
 async function selectWorkspace() {
   await workspaceStore.selectWorkspace()
@@ -37,7 +37,7 @@ async function createConversationFromInput() {
   await router.push(`/conversation/${conv.id}`)
 
   try {
-    if (workspaceStore.hasWorkspace && workspaceStore.currentWorkspaceId) {
+    if (workspaceStore.currentWorkspaceId) {
       await chatStore.sendAgentMessage(conv.id, content, {
         workspaceId: workspaceStore.currentWorkspaceId,
       })
@@ -65,51 +65,32 @@ onMounted(() => {
   <div class="home">
     <section class="home-center">
       <h1>我们应该在 TieX 中构建什么？</h1>
+      <p class="hero-copy">把项目、文档、命令和审批放进同一个本地 AI 工作台。</p>
+
+      <div class="hero-status" aria-live="polite">
+        <div class="status-pill status-live">
+          <span class="status-dot" />
+          <span>{{ statusLabel }}</span>
+        </div>
+      </div>
 
       <div class="prompt-shell">
-        <div class="prompt-main">
-          <textarea
-            v-model="inputText"
-            placeholder="输入任务"
-            @keydown.enter.exact.prevent="createConversationFromInput"
-          />
-
-          <div class="prompt-toolbar">
-            <div class="toolbar-left">
-              <button class="tool-btn" @click="selectWorkspace">
-                <Plus :size="18" />
-              </button>
-              <button class="toolbar-chip">
-                <Shield :size="16" />
-                <span>{{ workspaceStore.hasWorkspace ? '请求批准' : '直接对话' }}</span>
-              </button>
-            </div>
-
-            <div class="toolbar-right">
-              <button class="toolbar-chip subtle-chip">
-                <Cpu :size="16" />
-                <span>DeepSeek</span>
-              </button>
-              <button class="send-btn home-send" @click="createConversationFromInput">
-                <Send :size="16" />
-              </button>
-            </div>
-          </div>
-        </div>
+        <textarea
+          v-model="inputText"
+          placeholder="例如：检查当前项目结构、生成说明文档，或修复一个具体问题"
+          aria-label="输入任务"
+          @keydown.enter.exact.prevent="createConversationFromInput"
+        />
 
         <div class="prompt-footer">
-          <button class="footer-chip" @click="selectWorkspace">
-            <FolderOpen :size="15" />
-            <span>{{ currentWorkspaceLabel }}</span>
+          <button class="chip workspace-chip" @click="selectWorkspace">
+            <FolderOpen :size="14" />
+            <span>{{ workspaceLabel }}</span>
           </button>
-          <div class="footer-chip">
-            <Monitor :size="15" />
-            <span>{{ currentModeLabel }}</span>
-          </div>
-          <div class="footer-chip">
-            <GitBranch :size="15" />
-            <span>main</span>
-          </div>
+          <button class="send-btn home-send" @click="createConversationFromInput" :disabled="!canCreateConversation">
+            <Send :size="16" />
+            <span>开始</span>
+          </button>
         </div>
       </div>
 
@@ -138,11 +119,11 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  padding: 240px 24px 96px;
+  padding: 180px 24px 96px;
 }
 
 h1 {
-  margin: 0 0 28px;
+  margin: 0 0 20px;
   font-size: clamp(18px, 2.2vw, 26px);
   line-height: 1.2;
   font-weight: 600;
@@ -152,115 +133,97 @@ h1 {
   color: var(--text-strong);
 }
 
+.hero-copy {
+  margin: 0 0 18px;
+  color: var(--body);
+  font-size: 15px;
+  text-align: center;
+}
+
+.hero-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--text-strong);
+  font-size: 12px;
+  box-shadow: var(--shadow-soft);
+}
+
+.status-live {
+  color: var(--success-strong);
+}
+
 .prompt-shell {
   width: min(760px, 92%);
-  border-radius: 24px;
   overflow: hidden;
+  border-radius: 24px;
   background: color-mix(in srgb, var(--panel) 88%, transparent);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
   backdrop-filter: blur(12px);
+  animation: homeRise var(--duration-slow) var(--ease-out);
 }
 
-.prompt-main {
-  padding: 14px 14px 0;
+.prompt-shell:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  box-shadow: var(--shadow-pop);
 }
 
-.prompt-main textarea {
+.prompt-shell textarea {
   width: 100%;
-  min-height: 68px;
+  min-height: 136px;
+  padding: 20px 20px 0;
   resize: none;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--text);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.7;
 }
 
-.prompt-main textarea::placeholder {
+.prompt-shell textarea:focus-visible {
+  box-shadow: none;
+}
+
+.prompt-shell textarea::placeholder {
   color: var(--muted-soft);
-}
-
-.prompt-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 0 0 10px;
-}
-
-.toolbar-left,
-.toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.tool-btn {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  color: var(--text-strong);
-  background: transparent;
-  border: 1px solid var(--line);
-}
-
-.tool-btn:hover {
-  background: var(--panel-2);
-}
-
-.toolbar-chip,
-.footer-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  color: var(--text-strong);
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  font-size: 13px;
-}
-
-.subtle-chip {
-  background: color-mix(in srgb, var(--panel-2) 80%, transparent);
-}
-
-.home-send {
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-
-.home-send:hover {
-  background: var(--accent-active);
-  border-color: var(--accent-active);
 }
 
 .prompt-footer {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px 14px;
-  background: var(--panel-2);
-  border-top: 1px solid var(--line);
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 20px;
 }
 
-.footer-chip span {
+.workspace-chip {
+  max-width: 320px;
+}
+
+.workspace-chip span {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 220px;
+}
+
+.home-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .quick-actions {
@@ -284,26 +247,33 @@ h1 {
 .quick-action:hover {
   background: var(--panel-2);
   border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  transform: translateY(-1px);
+}
+
+@keyframes homeRise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 820px) {
-  h1 {
-    margin-bottom: 20px;
+  .home-center {
+    padding-top: 112px;
   }
 
-  .prompt-toolbar {
+  .prompt-shell textarea {
+    min-height: 120px;
+    font-size: 15px;
+  }
+
+  .prompt-footer {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .toolbar-left,
-  .toolbar-right {
-    justify-content: space-between;
-  }
-
-  .prompt-main textarea {
-    min-height: 64px;
-    font-size: 14px;
   }
 }
 </style>

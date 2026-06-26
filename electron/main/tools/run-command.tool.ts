@@ -25,7 +25,7 @@ export interface RunCommandToolOutput {
 export const runCommandTool: AgentTool<RunCommandToolInput, RunCommandToolOutput> = {
   name: 'run_command',
   description:
-    '在工作区内执行受限命令。支持 npm、git、node、python、npx 等命令。命令执行需要用户审批。工作目录固定为工作区根目录，不支持 shell 元字符（如 &&、|、> 等）。',
+    '在工作区内执行受限命令。支持 npm、git、node、python、npx 等命令。低风险命令可直接执行，高风险命令仍需用户确认。工作目录固定为工作区根目录，不支持 shell 元字符（如 &&、|、> 等）。',
   schema: {
     type: 'object',
     properties: {

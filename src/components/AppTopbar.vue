@@ -63,10 +63,10 @@ function closeWindow() {
 <template>
   <header class="topbar">
     <div class="topbar-left">
-      <button class="icon-btn" title="返回" @click="goBack">
+      <button class="nav-btn" title="返回" @click="goBack">
         <ArrowLeft :size="16" />
       </button>
-      <button class="icon-btn" title="前进" @click="goForward">
+      <button class="nav-btn" title="前进" @click="goForward">
         <ArrowRight :size="16" />
       </button>
       <div class="title-group">
@@ -75,18 +75,21 @@ function closeWindow() {
       </div>
     </div>
     <div class="topbar-right">
-      <span class="badge">DeepSeek</span>
-      <button class="icon-btn theme-toggle" :title="themeLabel" @click="toggleTheme">
+      <div class="model-indicator">
+        <span class="model-label">模型</span>
+        <span class="model-value">DeepSeek</span>
+      </div>
+      <button class="theme-toggle" :title="themeLabel" @click="toggleTheme">
         <component :is="themeIcon" :size="16" />
       </button>
       <div class="window-controls">
-        <button class="icon-btn window-btn" title="最小化" @click="minimizeWindow">
+        <button class="window-btn" title="最小化" @click="minimizeWindow">
           <Minus :size="14" />
         </button>
-        <button class="icon-btn window-btn" title="最大化" @click="maximizeWindow">
+        <button class="window-btn" title="最大化" @click="maximizeWindow">
           <Square :size="13" />
         </button>
-        <button class="icon-btn window-btn close-btn" title="关闭" @click="closeWindow">
+        <button class="window-btn close-btn" title="关闭" @click="closeWindow">
           <X :size="14" />
         </button>
       </div>
@@ -102,6 +105,7 @@ function closeWindow() {
   align-items: center;
   padding: 0 22px;
   background: var(--topbar-bg);
+  backdrop-filter: blur(14px);
   -webkit-app-region: drag;
 }
 
@@ -119,6 +123,7 @@ function closeWindow() {
 
 .topbar-right {
   margin-left: auto;
+  gap: 10px;
 }
 
 .title-group {
@@ -134,7 +139,6 @@ function closeWindow() {
   text-transform: uppercase;
   color: var(--topbar-text-soft);
   font-weight: 700;
-  opacity: 0.8;
 }
 
 .thread-title {
@@ -147,13 +151,50 @@ function closeWindow() {
   text-overflow: ellipsis;
 }
 
-.badge {
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: var(--topbar-pill-bg);
+.nav-btn,
+.window-btn,
+.theme-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  color: var(--topbar-text-soft);
+  background: transparent;
+  display: grid;
+  place-items: center;
+}
+
+.nav-btn:hover,
+.window-btn:hover,
+.theme-toggle:hover {
+  background: color-mix(in srgb, var(--topbar-pill-bg) 86%, transparent);
+  border-color: var(--sidebar-border);
   color: var(--topbar-text);
-  font-size: 12px;
+}
+
+.model-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
   border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--topbar-pill-bg) 96%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--topbar-text) 6%, transparent);
+}
+
+.model-label {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--topbar-text-soft) 88%, var(--topbar-text));
+}
+
+.model-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--topbar-text);
 }
 
 .window-controls {
@@ -163,23 +204,21 @@ function closeWindow() {
   margin-left: 6px;
 }
 
-.window-btn {
-  width: 32px;
-  height: 32px;
-}
-
 .close-btn:hover {
   background: var(--danger);
-  color: var(--on-accent);
+  border-color: var(--danger);
+  color: #fff;
 }
 
 .theme-toggle {
-  color: var(--topbar-text-soft);
+  color: var(--topbar-text);
+  background: color-mix(in srgb, var(--accent-soft) 65%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--sidebar-border));
   transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, color 0.2s ease;
 }
 
 .theme-toggle:hover {
-  background: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent-soft) 92%, transparent);
   color: var(--accent);
   transform: rotate(20deg);
 }
@@ -193,8 +232,8 @@ function closeWindow() {
     display: none;
   }
 
-  .badge {
-    padding-inline: 12px;
+  .model-label {
+    display: none;
   }
 }
 </style>

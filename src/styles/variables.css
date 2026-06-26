@@ -28,16 +28,16 @@
   --sidebar-bg: #f4eee0;
   --sidebar-border: #e6dfd0;
   --sidebar-text: #1a1918;
-  --sidebar-text-soft: #4a4842;
-  --sidebar-text-muted: #6a6760;
-  --sidebar-text-faint: #8a857c;
+  --sidebar-text-soft: #3b3934;
+  --sidebar-text-muted: #56524b;
+  --sidebar-text-faint: #706b62;
   --sidebar-item-hover: rgba(204, 120, 92, 0.1);
   --sidebar-item-active: rgba(204, 120, 92, 0.16);
   --sidebar-pill-bg: #ebe5d4;
   --sidebar-divider: #e6dfd0;
   --topbar-bg: #f4eee0;
   --topbar-text: #1a1918;
-  --topbar-text-soft: #6a6760;
+  --topbar-text-soft: #5c5850;
   --topbar-pill-bg: #ebe5d4;
 
   /* —— 文本 —— */
@@ -83,6 +83,7 @@
   /* —— 阴影 —— */
   --shadow: 0 18px 38px rgba(34, 23, 15, 0.08);
   --shadow-soft: 0 8px 18px rgba(34, 23, 15, 0.06);
+  --shadow-pop: 0 22px 48px rgba(34, 23, 15, 0.14);
 
   /* —— 形态 —— */
   --radius: 20px;
@@ -90,6 +91,15 @@
   --sidebar-width: 296px;
   --sidebar-collapsed: 72px;
   --topbar-height: 72px;
+
+  /* —— 动效 —— */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast: 140ms;
+  --duration-base: 220ms;
+  --duration-slow: 360ms;
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 [data-theme='dark'] {
@@ -115,16 +125,16 @@
   --sidebar-bg: linear-gradient(180deg, #15191a, #0f1314);
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-text: #f5f2eb;
-  --sidebar-text-soft: #c8c4ba;
-  --sidebar-text-muted: #9a9690;
-  --sidebar-text-faint: #75716a;
+  --sidebar-text-soft: #ddd8cf;
+  --sidebar-text-muted: #b3aea5;
+  --sidebar-text-faint: #918d84;
   --sidebar-item-hover: rgba(255, 255, 255, 0.08);
   --sidebar-item-active: rgba(255, 255, 255, 0.14);
   --sidebar-pill-bg: rgba(255, 255, 255, 0.06);
   --sidebar-divider: rgba(255, 255, 255, 0.08);
   --topbar-bg: #15191a;
   --topbar-text: #f5f2eb;
-  --topbar-text-soft: #9a9690;
+  --topbar-text-soft: #c1bbb1;
   --topbar-pill-bg: rgba(255, 255, 255, 0.06);
 
   /* —— 文本 —— */

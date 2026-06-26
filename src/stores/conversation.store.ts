@@ -14,7 +14,7 @@ export const useConversationStore = defineStore('conversation', () => {
   async function loadConversations() {
     if (!window.tiex) return
     try {
-      conversations.value = await window.tiex.conversation.getRecent(20)
+      conversations.value = await window.tiex.conversation.getRecent(100)
     } catch (err) {
       console.error('Failed to load conversations:', err)
     }

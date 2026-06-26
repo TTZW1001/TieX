@@ -33,6 +33,7 @@ export interface ConversationInfo {
 export interface ChatMessageInfo {
   id: string
   conversationId: string
+  taskId: string | null
   role: string
   content: string
   contentType: string
@@ -221,12 +222,14 @@ export interface TaskEvent {
     | 'permission:requested'
     | 'permission:decided'
     | 'artifact:created'
+    | 'command:started'
     | 'command:output'
     | 'command:completed'
     | 'command:failed'
     | 'command:stopped'
     | 'command:timeout'
   taskId: string
+  messageId?: string
   status?: string
   toolCallId?: string
   toolName?: string
@@ -248,6 +251,8 @@ export interface TaskEvent {
   name?: string
   // 命令执行相关
   sessionId?: string
+  command?: string
+  args?: string[]
   exitCode?: number | null
   output?: string
   truncated?: boolean

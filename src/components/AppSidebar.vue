@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, onBeforeUnmount, nextTick } from 'vue'
+import { computed, ref, onBeforeUnmount, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '@/stores/ui.store'
 import { useConversationStore } from '@/stores/conversation.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
+import { useChatStore } from '@/stores/chat.store'
+import { useTaskStore } from '@/stores/task.store'
+import type { ConversationInfo } from '@/types/global'
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -11,24 +14,89 @@ import {
   Settings,
   FolderOpen,
   Search,
-  Library,
-  Clock3,
   MoreHorizontal,
   Pencil,
   Trash2,
   Check,
   X,
 } from 'lucide-vue-next'
-import WorkspaceSelector from './WorkspaceSelector.vue'
 
 const appIconUrl = new URL('../../icon.png', import.meta.url).href
 const router = useRouter()
 const uiStore = useUiStore()
 const conversationStore = useConversationStore()
 const workspaceStore = useWorkspaceStore()
+const chatStore = useChatStore()
+const taskStore = useTaskStore()
 
-const recentConversations = computed(() => conversationStore.conversations.slice(0, 12))
-const workspaceList = computed(() => workspaceStore.workspaces.slice(0, 6))
+const searchQuery = ref('')
+
+type ConversationTone = 'running' | 'ready' | 'warning' | 'danger' | 'idle'
+
+const groupedConversations = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+  const workspaceMap = new Map(workspaceStore.workspaces.map((workspace) => [workspace.id, workspace]))
+  const groups = new Map<string, {
+    id: string
+    name: string
+    path: string
+    isUnassigned: boolean
+    conversations: ConversationInfo[]
+  }>()
+
+  for (const conversation of conversationStore.conversations) {
+    const workspace = conversation.workspace_id ? workspaceMap.get(conversation.workspace_id) : null
+    const groupId = workspace?.id ?? '__unassigned__'
+
+    if (!groups.has(groupId)) {
+      groups.set(groupId, {
+        id: groupId,
+        name: workspace?.name ?? '未绑定工作区',
+        path: workspace?.rootPath ?? '普通对话',
+        isUnassigned: !workspace,
+        conversations: [],
+      })
+    }
+
+    groups.get(groupId)!.conversations.push(conversation)
+  }
+
+  return Array.from(groups.values())
+    .map((group) => {
+      const matchesGroup = !query ||
+        group.name.toLowerCase().includes(query) ||
+        group.path.toLowerCase().includes(query)
+
+      const filteredConversations = group.conversations.filter((conversation) => {
+        return !query || matchesGroup || conversation.title.toLowerCase().includes(query)
+      })
+
+      return {
+        ...group,
+        conversations: filteredConversations,
+      }
+    })
+    .filter((group) => group.conversations.length > 0)
+})
+
+const hasSearchResults = computed(() => groupedConversations.value.length > 0)
+
+const currentConversationTone = computed<ConversationTone>(() => {
+  const taskStatus = taskStore.currentTask?.status
+
+  if (taskStore.isRunning || chatStore.isStreaming) return 'running'
+  if (taskStatus === 'failed') return 'danger'
+  if (taskStatus === 'stopped' || taskStatus === 'waiting_permission') return 'warning'
+  if (conversationStore.currentConversationId) return 'ready'
+  return 'idle'
+})
+
+function getConversationTone(conv: ConversationInfo): ConversationTone {
+  if (conv.id === conversationStore.currentConversationId) {
+    return currentConversationTone.value
+  }
+  return 'idle'
+}
 
 // —— 会话列表的更多菜单状态 ——
 const openMenuId = ref<string | null>(null)
@@ -53,15 +121,9 @@ async function openConversation(id: string) {
 }
 
 async function createNewConversation() {
-  if (uiStore.sidebarCollapsed) {
-    uiStore.toggleSidebar()
-    return
-  }
-
-  const conv = await conversationStore.createConversation()
-  if (conv) {
-    conversationStore.setCurrentConversation(conv.id)
-    router.push(`/conversation/${conv.id}`)
+  conversationStore.setCurrentConversation(null)
+  if (router.currentRoute.value.path !== '/home') {
+    await router.push('/home')
   }
 }
 
@@ -201,6 +263,11 @@ window.addEventListener('click', onWindowClick)
 onBeforeUnmount(() => {
   window.removeEventListener('click', onWindowClick)
 })
+
+onMounted(() => {
+  workspaceStore.loadWorkspaces()
+  conversationStore.loadConversations()
+})
 </script>
 
 <template>
@@ -226,118 +293,109 @@ onBeforeUnmount(() => {
       </button>
 
       <template v-if="!uiStore.sidebarCollapsed">
-        <div class="nav-list">
-          <button class="sub-nav-item">
-            <Search :size="17" />
-            <span>搜索</span>
-          </button>
-          <button class="sub-nav-item">
-            <Library :size="17" />
-            <span>工作区</span>
-          </button>
-          <button class="sub-nav-item">
-            <Clock3 :size="17" />
-            <span>最近</span>
-          </button>
+        <div class="search-shell">
+          <Search :size="16" class="search-icon" />
+          <input
+            v-model="searchQuery"
+            class="search-input"
+            type="text"
+            placeholder="搜索工作区或会话"
+            aria-label="搜索工作区或会话"
+          />
         </div>
 
-        <div class="workspace-section">
-          <WorkspaceSelector />
-        </div>
-      </template>
-
-      <button class="workspace-pill collapsed-pill" v-else @click="uiStore.toggleSidebar">
-        <FolderOpen :size="16" />
-      </button>
-
-      <template v-if="!uiStore.sidebarCollapsed && workspaceList.length > 0">
-        <div class="section-title">项目</div>
-        <div
-          v-for="ws in workspaceList"
-          :key="ws.id"
-          class="project-row"
-        >
-          <FolderOpen :size="16" />
-          <span>{{ ws.name }}</span>
-        </div>
-      </template>
-
-      <div class="section-title" v-if="!uiStore.sidebarCollapsed">最近</div>
-
-      <template v-if="!uiStore.sidebarCollapsed">
-        <div
-          v-for="conv in recentConversations"
-          :key="conv.id"
-          class="conversation"
-          :class="{
-            active: conversationStore.currentConversationId === conv.id,
-            'menu-open': openMenuId === conv.id,
-            renaming: renamingId === conv.id,
-          }"
-          @click="openConversation(conv.id)"
-        >
-          <div class="conversation-dot"></div>
-          <div class="conversation-meta">
-            <template v-if="renamingId === conv.id">
-              <div class="conversation-rename">
-                <input
-                  ref="renameInputRef"
-                  v-model="renameValue"
-                  class="conversation-rename-input"
-                  type="text"
-                  maxlength="80"
-                  :disabled="savingRenameId === conv.id"
-                  @click.stop
-                  @keydown.enter.stop.prevent="commitRename"
-                  @keydown.esc.stop="cancelRename"
-                />
-                <div class="conversation-rename-actions">
-                  <button
-                    class="rename-btn"
-                    :class="{ primary: true, loading: savingRenameId === conv.id }"
-                    :disabled="savingRenameId === conv.id"
-                    title="保存（Enter）"
-                    @click.stop="commitRename"
-                  >
-                    <Check :size="14" />
-                  </button>
-                  <button
-                    class="rename-btn"
-                    :disabled="savingRenameId === conv.id"
-                    title="取消（Esc）"
-                    @click.stop="cancelRename"
-                  >
-                    <X :size="14" />
-                  </button>
-                </div>
-                <div v-if="renameError" class="conversation-rename-error">{{ renameError }}</div>
+        <div v-if="groupedConversations.length > 0" class="group-list">
+          <section v-for="group in groupedConversations" :key="group.id" class="workspace-group">
+            <div class="workspace-group-head">
+              <div class="workspace-group-title">
+                <FolderOpen :size="15" />
+                <span>{{ group.name }}</span>
               </div>
-            </template>
-            <template v-else>
-              <div class="conversation-title">{{ conv.title }}</div>
-              <div class="conversation-time">{{ formatTime(conv.updated_at) }}</div>
-            </template>
-          </div>
+              <div class="workspace-group-path">{{ group.path }}</div>
+            </div>
 
-          <button
-            v-if="renamingId !== conv.id"
-            class="conversation-more"
-            title="更多"
-            @click="toggleMenu($event, conv.id)"
-          >
-            <MoreHorizontal :size="16" />
-          </button>
+            <div
+              v-for="conv in group.conversations"
+              :key="conv.id"
+              class="conversation"
+              :class="{
+                active: conversationStore.currentConversationId === conv.id,
+                'menu-open': openMenuId === conv.id,
+                renaming: renamingId === conv.id,
+              }"
+              @click="openConversation(conv.id)"
+            >
+              <div class="conversation-dot" :class="`is-${getConversationTone(conv)}`"></div>
+              <div class="conversation-meta">
+                <template v-if="renamingId === conv.id">
+                  <div class="conversation-rename">
+                    <input
+                      ref="renameInputRef"
+                      v-model="renameValue"
+                      class="conversation-rename-input"
+                      type="text"
+                      maxlength="80"
+                      :disabled="savingRenameId === conv.id"
+                      @click.stop
+                      @keydown.enter.stop.prevent="commitRename"
+                      @keydown.esc.stop="cancelRename"
+                    />
+                    <div class="conversation-rename-actions">
+                      <button
+                        class="rename-btn"
+                        :class="{ primary: true, loading: savingRenameId === conv.id }"
+                        :disabled="savingRenameId === conv.id"
+                        title="保存（Enter）"
+                        @click.stop="commitRename"
+                      >
+                        <Check :size="14" />
+                      </button>
+                      <button
+                        class="rename-btn"
+                        :disabled="savingRenameId === conv.id"
+                        title="取消（Esc）"
+                        @click.stop="cancelRename"
+                      >
+                        <X :size="14" />
+                      </button>
+                    </div>
+                    <div v-if="renameError" class="conversation-rename-error">{{ renameError }}</div>
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="conversation-title">{{ conv.title }}</div>
+                  <div class="conversation-time">{{ formatTime(conv.updated_at) }}</div>
+                </template>
+              </div>
 
-          <div v-if="openMenuId === conv.id" class="conversation-menu" @click.stop>
-            <button class="menu-item" @click="startRename($event, conv)">
-              <Pencil :size="14" />
-              <span>重命名</span>
-            </button>
-            <button class="menu-item danger" @click="confirmDelete($event, conv)">
-              <Trash2 :size="14" />
-              <span>删除</span>
-            </button>
-          </div>
+              <button
+                v-if="renamingId !== conv.id"
+                class="conversation-more"
+                title="更多"
+                @click="toggleMenu($event, conv.id)"
+              >
+                <MoreHorizontal :size="16" />
+              </button>
+
+              <div v-if="openMenuId === conv.id" class="conversation-menu" @click.stop>
+                <button class="menu-item" @click="startRename($event, conv)">
+                  <Pencil :size="14" />
+                  <span>重命名</span>
+                </button>
+                <button class="menu-item danger" @click="confirmDelete($event, conv)">
+                  <Trash2 :size="14" />
+                  <span>删除</span>
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div v-else-if="searchQuery && !hasSearchResults" class="sidebar-empty">
+          没有匹配的工作区或会话
+        </div>
+        <div v-else class="sidebar-empty">
+          还没有历史会话，先开始一个新对话吧。
         </div>
       </template>
     </div>
@@ -409,7 +467,7 @@ onBeforeUnmount(() => {
   letter-spacing: 0.12em;
   color: var(--sidebar-text-muted);
   font-weight: 600;
-  opacity: 0.85;
+  opacity: 1;
 }
 
 .collapse-btn {
@@ -455,14 +513,6 @@ onBeforeUnmount(() => {
   background: var(--sidebar-item-hover);
 }
 
-.nav-list {
-  display: grid;
-  gap: 6px;
-  margin: 14px 0 10px;
-}
-
-.sub-nav-item,
-.project-row,
 .settings-row {
   display: flex;
   align-items: center;
@@ -476,41 +526,75 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.sub-nav-item:hover,
-.project-row:hover,
 .settings-row:hover {
   background: var(--sidebar-item-hover);
   color: var(--sidebar-text);
 }
 
-.workspace-section {
-  margin-top: 10px;
-}
-
-.workspace-pill {
-  width: 100%;
+.search-shell {
+  position: relative;
   display: flex;
-  justify-content: center;
   align-items: center;
-  min-height: 46px;
-  margin-top: 8px;
-  border-radius: 14px;
-  color: var(--sidebar-text);
-  font-weight: 600;
+  margin: 14px 0 12px;
   border: 1px solid var(--sidebar-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
 }
 
-.workspace-pill:hover {
-  background: var(--sidebar-item-hover);
+.search-shell:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--sidebar-border));
+  box-shadow: var(--focus-ring);
 }
 
-.section-title {
-  padding: 16px 14px 8px;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+.search-icon {
+  margin-left: 14px;
   color: var(--sidebar-text-muted);
+}
+
+.search-input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 14px 0 10px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--sidebar-text);
+  font-size: 14px;
+}
+
+.search-input::placeholder {
+  color: var(--sidebar-text-muted);
+}
+
+.group-list {
+  display: grid;
+  gap: 14px;
+}
+
+.workspace-group {
+  display: grid;
+  gap: 6px;
+}
+
+.workspace-group-head {
+  padding: 10px 12px 6px;
+}
+
+.workspace-group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--sidebar-text);
+  font-size: 14px;
   font-weight: 700;
+}
+
+.workspace-group-path {
+  margin-top: 4px;
+  padding-left: 24px;
+  color: var(--sidebar-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .conversation {
@@ -534,8 +618,34 @@ onBeforeUnmount(() => {
   height: 8px;
   border-radius: 50%;
   margin-top: 7px;
-  background: var(--info);
+  background: var(--muted-soft);
   flex: 0 0 auto;
+  transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
+}
+
+.conversation-dot.is-running {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.conversation-dot.is-ready {
+  background: var(--success-strong);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 18%, transparent);
+}
+
+.conversation-dot.is-warning {
+  background: var(--warning-strong);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--warning) 18%, transparent);
+}
+
+.conversation-dot.is-danger {
+  background: var(--danger-strong);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.conversation-dot.is-idle {
+  background: var(--muted-soft);
+  box-shadow: none;
 }
 
 .conversation-meta {
@@ -733,5 +843,11 @@ onBeforeUnmount(() => {
 .sidebar-footer {
   padding: 10px;
   border-top: 1px solid var(--sidebar-divider);
+}
+
+.sidebar-empty {
+  padding: 18px 14px;
+  color: var(--sidebar-text-muted);
+  font-size: 13px;
 }
 </style>

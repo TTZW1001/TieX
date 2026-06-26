@@ -275,6 +275,7 @@ export class ChatService {
     return {
       id: msg.id,
       conversationId: msg.conversation_id,
+      taskId: msg.task_id ?? null,
       role: msg.role,
       content: msg.content,
       contentType: msg.content_type,

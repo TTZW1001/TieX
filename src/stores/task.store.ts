@@ -1,6 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { TaskEvent, TaskInfo, TaskStepEntity, ToolCallEntity, OperationLogEntity, CommandSessionInfo } from '@/types/global'
+import type {
+  TaskEvent,
+  TaskInfo,
+  TaskStepEntity,
+  ToolCallEntity,
+  OperationLogEntity,
+  CommandSessionInfo,
+  ArtifactInfo,
+  PermissionRequestInfo,
+} from '@/types/global'
 import { useUiStore } from './ui.store'
 
 export const useTaskStore = defineStore('task', () => {
@@ -14,6 +23,10 @@ export const useTaskStore = defineStore('task', () => {
   const toolCalls = ref<ToolCallEntity[]>([])
   // 操作日志
   const logs = ref<OperationLogEntity[]>([])
+  // 任务生成物
+  const artifacts = ref<ArtifactInfo[]>([])
+  // 任务审批记录
+  const permissionRequests = ref<PermissionRequestInfo[]>([])
   // 是否正在运行任务
   const isRunning = ref(false)
   // 工具调用实时状态（按 toolCallId 索引）
@@ -70,17 +83,26 @@ export const useTaskStore = defineStore('task', () => {
           // 触发响应式更新
           toolCallStatus.value = new Map(toolCallStatus.value)
         }
+        if (currentTask.value) {
+          refreshTaskDetails(currentTask.value.id)
+        }
         break
       case 'tool:completed':
         if (event.toolCallId) {
           toolCallStatus.value.set(event.toolCallId, { status: 'completed', result: event.result })
           toolCallStatus.value = new Map(toolCallStatus.value)
         }
+        if (currentTask.value) {
+          refreshTaskDetails(currentTask.value.id)
+        }
         break
       case 'tool:failed':
         if (event.toolCallId) {
           toolCallStatus.value.set(event.toolCallId, { status: 'failed', error: event.error })
           toolCallStatus.value = new Map(toolCallStatus.value)
+        }
+        if (currentTask.value) {
+          refreshTaskDetails(currentTask.value.id)
         }
         break
       case 'message:delta':
@@ -130,6 +152,9 @@ export const useTaskStore = defineStore('task', () => {
             riskLevel: event.riskLevel,
           })
         }
+        if (currentTask.value) {
+          loadPermissionRequests(currentTask.value.id)
+        }
         break
       case 'permission:decided':
         // 权限决策已做出，关闭对话框
@@ -139,6 +164,30 @@ export const useTaskStore = defineStore('task', () => {
             uiStore.closePermissionDialog()
           }
         }
+        if (currentTask.value) {
+          loadPermissionRequests(currentTask.value.id)
+        }
+        break
+      case 'artifact:created':
+        if (currentTask.value) {
+          loadArtifacts(currentTask.value.id)
+        }
+        break
+      case 'command:started':
+        if (event.sessionId) {
+          commandSessions.value.set(event.sessionId, {
+            sessionId: event.sessionId,
+            command: event.command || '',
+            args: event.args || [],
+            status: 'running',
+            exitCode: null,
+            output: '',
+            truncated: false,
+            startedAt: new Date().toISOString(),
+            completedAt: null,
+          })
+          commandSessions.value = new Map(commandSessions.value)
+        }
         break
       case 'command:output':
         if (event.sessionId) {
@@ -146,6 +195,20 @@ export const useTaskStore = defineStore('task', () => {
           if (existing) {
             existing.output += event.output || ''
             existing.truncated = event.truncated ?? false
+            existing.status = 'running'
+            commandSessions.value = new Map(commandSessions.value)
+          } else {
+            commandSessions.value.set(event.sessionId, {
+              sessionId: event.sessionId,
+              command: event.command || '命令执行中',
+              args: event.args || [],
+              status: 'running',
+              exitCode: null,
+              output: event.output || '',
+              truncated: event.truncated ?? false,
+              startedAt: new Date().toISOString(),
+              completedAt: null,
+            })
             commandSessions.value = new Map(commandSessions.value)
           }
         }
@@ -265,7 +328,12 @@ export const useTaskStore = defineStore('task', () => {
   async function loadConversationTasks(conversationId: string) {
     if (!window.tiex) return
     try {
-      conversationTasks.value = await window.tiex.task.getByConversation(conversationId)
+      const tasks = await window.tiex.task.getByConversation(conversationId)
+      conversationTasks.value = [...tasks].sort((a, b) => {
+        const timeA = new Date(a.createdAt).getTime()
+        const timeB = new Date(b.createdAt).getTime()
+        return timeB - timeA
+      })
     } catch (err) {
       console.error('Failed to load conversation tasks:', err)
     }
@@ -281,6 +349,8 @@ export const useTaskStore = defineStore('task', () => {
       steps.value = []
       toolCalls.value = []
       logs.value = []
+      artifacts.value = []
+      permissionRequests.value = []
       return
     }
 
@@ -288,7 +358,11 @@ export const useTaskStore = defineStore('task', () => {
       const task = await window.tiex.task.getById(taskId)
       currentTask.value = task
       if (task) {
-        await refreshTaskDetails(taskId)
+        await Promise.all([
+          refreshTaskDetails(taskId),
+          loadArtifacts(taskId),
+          loadPermissionRequests(taskId),
+        ])
         isRunning.value = task.status === 'running' || task.status === 'executing_tool' || task.status === 'pending'
         if (isRunning.value) {
           setupTaskEventListener()
@@ -318,6 +392,26 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
+  async function loadArtifacts(taskId: string) {
+    if (!window.tiex) return
+    try {
+      artifacts.value = await window.tiex.artifact.getByTask(taskId)
+    } catch (err) {
+      console.error('Failed to load artifacts:', err)
+      artifacts.value = []
+    }
+  }
+
+  async function loadPermissionRequests(taskId: string) {
+    if (!window.tiex) return
+    try {
+      permissionRequests.value = await window.tiex.permission.getByTask(taskId)
+    } catch (err) {
+      console.error('Failed to load permission requests:', err)
+      permissionRequests.value = []
+    }
+  }
+
   /**
    * 清理状态
    */
@@ -327,6 +421,8 @@ export const useTaskStore = defineStore('task', () => {
     steps.value = []
     toolCalls.value = []
     logs.value = []
+    artifacts.value = []
+    permissionRequests.value = []
     isRunning.value = false
     toolCallStatus.value = new Map()
     commandSessions.value = new Map()
@@ -339,6 +435,8 @@ export const useTaskStore = defineStore('task', () => {
     steps,
     toolCalls,
     logs,
+    artifacts,
+    permissionRequests,
     isRunning,
     toolCallStatus,
     commandSessions,
@@ -347,6 +445,8 @@ export const useTaskStore = defineStore('task', () => {
     loadConversationTasks,
     setCurrentTask,
     refreshTaskDetails,
+    loadArtifacts,
+    loadPermissionRequests,
     clear,
     setupTaskEventListener,
     removeTaskEventListener,

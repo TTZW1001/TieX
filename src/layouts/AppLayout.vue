@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import AppSidebar from '@/components/AppSidebar.vue'
 import AppTopbar from '@/components/AppTopbar.vue'
-import PermissionDialog from '@/components/PermissionDialog.vue'
 import { useUiStore } from '@/stores/ui.store'
 
 const uiStore = useUiStore()
@@ -16,7 +15,6 @@ const uiStore = useUiStore()
         <router-view />
       </main>
     </div>
-    <PermissionDialog />
   </div>
 </template>
 

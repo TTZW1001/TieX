@@ -110,20 +110,20 @@ function handleStop() {
 
 <style scoped>
 .command-output {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  background: color-mix(in srgb, var(--surface-dark) 74%, var(--panel));
+  border-radius: 12px;
   overflow: hidden;
   margin-top: 8px;
 }
 
 .cmd-head {
-  padding: 10px 12px;
+  padding: 9px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
 }
 
 .cmd-info {
@@ -142,14 +142,15 @@ function handleStop() {
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 12px;
   font-weight: 600;
+  color: var(--surface-dark-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .cmd-status-badge {
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
   font-size: 10px;
   font-weight: 600;
   flex-shrink: 0;
@@ -204,7 +205,7 @@ function handleStop() {
 .cmd-exit-code,
 .cmd-duration {
   font-size: 10px;
-  color: var(--muted);
+  color: var(--surface-dark-text-soft);
   font-family: 'Consolas', monospace;
 }
 
@@ -213,10 +214,10 @@ function handleStop() {
   align-items: center;
   gap: 3px;
   padding: 3px 8px;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   border-radius: 6px;
-  background: var(--panel);
-  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-dark-elevated) 88%, transparent);
+  color: var(--surface-dark-text-soft);
   font-size: 10px;
   cursor: pointer;
   transition: all 0.15s;
@@ -242,7 +243,7 @@ function handleStop() {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 300px;
+  max-height: 220px;
   overflow: auto;
 }
 

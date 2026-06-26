@@ -74,6 +74,7 @@ export interface AppSetting {
 export interface ChatMessageVO {
   id: string
   conversationId: string
+  taskId: string | null
   role: string
   content: string
   contentType: string
@@ -394,13 +395,14 @@ export type TaskEvent =
   | { type: 'tool:started'; taskId: string; toolCallId: string; toolName: string }
   | { type: 'tool:completed'; taskId: string; toolCallId: string; result: unknown }
   | { type: 'tool:failed'; taskId: string; toolCallId: string; error: string }
-  | { type: 'message:delta'; taskId: string; content: string; delta: string }
+  | { type: 'message:delta'; taskId: string; messageId: string; content: string; delta: string }
   | { type: 'task:completed'; taskId: string }
   | { type: 'task:failed'; taskId: string; error: string }
   | { type: 'task:stopped'; taskId: string }
   | { type: 'permission:requested'; taskId: string; requestId: string; toolName: string; title: string; reason?: string; target?: string; impactSummary?: string; riskLevel?: string }
   | { type: 'permission:decided'; taskId: string; requestId: string; decision: string }
   | { type: 'artifact:created'; taskId: string; artifactId: string; artifactType: string; name: string }
+  | { type: 'command:started'; taskId: string; sessionId: string; command: string; args: string[] }
   | { type: 'command:output'; taskId: string; sessionId: string; output: string; truncated: boolean }
   | { type: 'command:completed'; taskId: string; sessionId: string; exitCode: number | null; output: string }
   | { type: 'command:failed'; taskId: string; sessionId: string; error: string }

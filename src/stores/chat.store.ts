@@ -98,12 +98,25 @@ export const useChatStore = defineStore('chat', () => {
   function handleTaskStreamEvent(event: any) {
     switch (event.type) {
       case 'message:delta': {
-        // Agent 模式下的消息增量
-        // 这里 event.content 是累积的完整内容，event.delta 是增量
-        // 我们需要找到当前正在流式的 assistant 消息并更新
-        const streamingMsg = messages.value.find((m) => m.isStreaming === 1 && m.role === 'assistant')
-        if (streamingMsg) {
-          streamingMsg.content = event.content
+        const messageId = event.messageId
+        if (!messageId) break
+
+        const idx = messages.value.findIndex((m) => m.id === messageId)
+        if (idx !== -1) {
+          messages.value[idx].content = event.content
+          messages.value[idx].isStreaming = 1
+        } else {
+          messages.value.push({
+            id: messageId,
+            conversationId: currentConversationId.value || '',
+            role: 'assistant',
+            content: event.content,
+            contentType: 'markdown',
+            sequenceNo: messages.value.length,
+            isStreaming: 1,
+            createdAt: new Date().toISOString(),
+            taskId: event.taskId,
+          })
         }
         break
       }
@@ -165,13 +178,13 @@ export const useChatStore = defineStore('chat', () => {
       messages.value = result.map((m: any) => ({
         id: m.id,
         conversationId: m.conversationId,
+        taskId: m.taskId ?? null,
         role: m.role,
         content: m.content,
         contentType: m.contentType,
         sequenceNo: m.sequenceNo,
         isStreaming: m.isStreaming,
         createdAt: m.createdAt,
-        taskId: m.taskId,
       }))
 
       // 更新是否有更多消息
@@ -217,13 +230,13 @@ export const useChatStore = defineStore('chat', () => {
       const olderMessages = result.map((m: any) => ({
         id: m.id,
         conversationId: m.conversationId,
+        taskId: m.taskId ?? null,
         role: m.role,
         content: m.content,
         contentType: m.contentType,
         sequenceNo: m.sequenceNo,
         isStreaming: m.isStreaming,
         createdAt: m.createdAt,
-        taskId: m.taskId,
       }))
 
       // 将旧消息插入到前面
@@ -253,6 +266,7 @@ export const useChatStore = defineStore('chat', () => {
       messages.value.push({
         id: userMessage.id,
         conversationId: userMessage.conversationId,
+        taskId: userMessage.taskId ?? null,
         role: userMessage.role,
         content: userMessage.content,
         contentType: userMessage.contentType,
@@ -308,19 +322,6 @@ export const useChatStore = defineStore('chat', () => {
         sequenceNo: messages.value.length,
         isStreaming: 0,
         createdAt: new Date().toISOString(),
-      })
-
-      // 添加 assistant 消息占位（等待 message:delta 事件填充）
-      messages.value.push({
-        id: `temp-assistant-${result.taskId}`,
-        conversationId,
-        role: 'assistant',
-        content: '',
-        contentType: 'markdown',
-        sequenceNo: messages.value.length,
-        isStreaming: 1,
-        createdAt: new Date().toISOString(),
-        taskId: result.taskId,
       })
 
       return result.taskId

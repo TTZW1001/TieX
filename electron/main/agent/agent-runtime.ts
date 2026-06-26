@@ -102,18 +102,7 @@ export async function runAgent(runtime: RuntimeContext): Promise<void> {
   taskController.updateTaskStatus(taskId, 'running')
   taskEventBus.emit({ type: 'task:started', taskId })
 
-  // 创建 Assistant 消息占位（用于流式输出）
-  const latestMsg = messageRepo.getLatestByConversationId(conversationId)
-  const nextSeq = (latestMsg?.sequence_no ?? 0) + 1
-  const assistantMessage = messageRepo.create({
-    conversation_id: conversationId,
-    role: 'assistant',
-    content: '',
-    content_type: 'markdown',
-    sequence_no: nextSeq,
-    task_id: taskId,
-  })
-  messageRepo.setStreaming(assistantMessage.id, 1)
+  let assistantMessage = createStreamingAssistantMessage(conversationId, taskId)
 
   let pendingToolCalls: Array<{ toolCall: ModelToolCall; result: ToolExecutionResult }> | undefined
 
@@ -192,6 +181,7 @@ export async function runAgent(runtime: RuntimeContext): Promise<void> {
             taskEventBus.emit({
               type: 'message:delta',
               taskId,
+              messageId: assistantMessage.id,
               content: currentText,
               delta: streamEvent.content,
             })
@@ -291,7 +281,12 @@ export async function runAgent(runtime: RuntimeContext): Promise<void> {
       if (modelResponse.type === 'tool_calls' || modelResponse.type === 'tool_calls_with_text') {
         // 如果同时有文本内容，先保存到 assistant 消息
         if (modelResponse.type === 'tool_calls_with_text') {
-          messageRepo.updateContent(assistantMessage.id, modelResponse.textContent)
+          const textContent = modelResponse.textContent.trim()
+          if (textContent) {
+            messageRepo.updateContent(assistantMessage.id, modelResponse.textContent)
+            messageRepo.setStreaming(assistantMessage.id, 0)
+            assistantMessage = createStreamingAssistantMessage(conversationId, taskId)
+          }
         }
 
         pendingToolCalls = []
@@ -552,6 +547,21 @@ async function finishTask(
 
   // 清理资源
   taskController.cleanup(taskId)
+}
+
+function createStreamingAssistantMessage(conversationId: string, taskId: string) {
+  const latestMsg = messageRepo.getLatestByConversationId(conversationId)
+  const nextSeq = (latestMsg?.sequence_no ?? 0) + 1
+  const assistantMessage = messageRepo.create({
+    conversation_id: conversationId,
+    role: 'assistant',
+    content: '',
+    content_type: 'markdown',
+    sequence_no: nextSeq,
+    task_id: taskId,
+  })
+  messageRepo.setStreaming(assistantMessage.id, 1)
+  return assistantMessage
 }
 
 /**

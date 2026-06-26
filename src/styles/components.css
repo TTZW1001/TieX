@@ -10,13 +10,18 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+  transition:
+    background var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    transform var(--duration-fast) var(--spring),
+    box-shadow var(--duration-base) var(--ease-out);
 }
 
 .chip:hover {
   background: var(--panel-2);
   border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
   transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
 }
 
 .chip-active {
@@ -32,13 +37,26 @@
   padding: 11px 18px;
   font-size: 14px;
   font-weight: 600;
-  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+  transition:
+    transform var(--duration-fast) var(--spring),
+    background var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
 }
 
 .send-btn:hover {
   background: var(--accent-active);
   border-color: var(--accent-active);
   transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+
+.send-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .secondary-btn {
@@ -48,12 +66,16 @@
   border-radius: 999px;
   padding: 10px 14px;
   font-size: 13px;
-  transition: background 0.18s ease, border-color 0.18s ease;
+  transition:
+    background var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    transform var(--duration-fast) var(--spring);
 }
 
 .secondary-btn:hover {
   background: var(--panel-2);
   border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+  transform: translateY(-1px);
 }
 
 .danger-btn {
@@ -83,13 +105,18 @@
   border: 1px solid transparent;
   display: inline-grid;
   place-items: center;
-  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  transition:
+    background var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out),
+    transform var(--duration-fast) var(--spring);
 }
 
 .icon-btn:hover {
   background: var(--panel-2);
   border-color: var(--line);
   color: var(--text);
+  transform: translateY(-1px);
 }
 
 .badge {
@@ -99,4 +126,25 @@
   font-size: 12px;
   color: var(--text-strong);
   border: 1px solid var(--line);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 0 currentColor;
+  animation: statusPulse 1.8s var(--ease-in-out) infinite;
+}
+
+@keyframes statusPulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 24%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
 }

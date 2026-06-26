@@ -3,11 +3,56 @@
  * 判断工具调用是否需要权限审批，以及风险等级
  */
 import type { ToolRiskLevel } from '../../shared/types'
+import { SettingsRepository } from '../database/repositories/settings.repository'
 
 export interface PermissionCheckResult {
   required: boolean
   reason?: string
   riskLevel?: ToolRiskLevel
+}
+
+function isSettingEnabled(key: string, defaultValue: boolean): boolean {
+  try {
+    const settingsRepo = new SettingsRepository()
+    const raw = settingsRepo.get(key)
+    if (raw === null) return defaultValue
+    return raw === 'true'
+  } catch {
+    // 主进程模块初始化早于数据库初始化时，回退到默认值。
+    return defaultValue
+  }
+}
+
+function shouldConfirmModify(): boolean {
+  return isSettingEnabled('confirm_before_modify', true)
+}
+
+function shouldConfirmCommand(): boolean {
+  return isSettingEnabled('confirm_before_command', true)
+}
+
+function isAutoApprovedCommand(input: any): boolean {
+  const cmd = String(input?.command ?? '').toLowerCase()
+  const args = Array.isArray(input?.args) ? input.args.map((arg: unknown) => String(arg).toLowerCase()) : []
+  const firstArg = args[0] ?? ''
+  const secondArg = args[1] ?? ''
+
+  if (cmd === 'git' && ['status', 'diff', 'log', 'show', 'branch', 'tag', 'stash'].includes(firstArg)) {
+    return true
+  }
+
+  if (cmd === 'npm') {
+    if (firstArg === 'test') return true
+    if (firstArg === 'run' || firstArg === 'run-script') {
+      return ['build', 'test', 'lint', 'typecheck', 'preview', 'dev'].includes(secondArg)
+    }
+  }
+
+  if (cmd === 'pip' && ['list', 'show', 'freeze'].includes(firstArg)) {
+    return true
+  }
+
+  return false
 }
 
 /**
@@ -31,13 +76,13 @@ const TOOL_PERMISSION_RULES: Record<string, {
       {
         condition: (input: any) => input.overwrite === true,
         risk: 'high',
-        requireApproval: true,
+        requireApproval: shouldConfirmModify(),
         reason: '将覆盖已有文件',
       },
       {
         condition: (input: any) => input.overwrite !== true,
         risk: 'medium',
-        requireApproval: true,
+        requireApproval: shouldConfirmModify(),
         reason: '将在工作区内创建新文件',
       },
     ],
@@ -49,7 +94,7 @@ const TOOL_PERMISSION_RULES: Record<string, {
       {
         condition: () => true,
         risk: 'high',
-        requireApproval: true,
+        requireApproval: shouldConfirmModify(),
         reason: '将修改已有文件',
       },
     ],
@@ -73,13 +118,13 @@ const TOOL_PERMISSION_RULES: Record<string, {
       {
         condition: (input: any) => input.overwrite === true,
         risk: 'high',
-        requireApproval: true,
+        requireApproval: shouldConfirmModify(),
         reason: '将覆盖已有 Markdown 文件',
       },
       {
         condition: (input: any) => input.overwrite !== true,
         risk: 'medium',
-        requireApproval: true,
+        requireApproval: shouldConfirmModify(),
         reason: '将生成新的 Markdown 文档',
       },
     ],
@@ -91,13 +136,13 @@ const TOOL_PERMISSION_RULES: Record<string, {
       {
         condition: (input: any) => input.overwrite === true,
         risk: 'high',
-        requireApproval: true,
+        requireApproval: shouldConfirmModify(),
         reason: '将覆盖已有 DOCX 文件',
       },
       {
         condition: (input: any) => input.overwrite !== true,
         risk: 'medium',
-        requireApproval: true,
+        requireApproval: shouldConfirmModify(),
         reason: '将生成新的 Word 文档',
       },
     ],
@@ -109,13 +154,13 @@ const TOOL_PERMISSION_RULES: Record<string, {
       {
         condition: (input: any) => input.overwrite === true,
         risk: 'high',
-        requireApproval: true,
+        requireApproval: shouldConfirmModify(),
         reason: '将覆盖已有 PPTX 文件',
       },
       {
         condition: (input: any) => input.overwrite !== true,
         risk: 'medium',
-        requireApproval: true,
+        requireApproval: shouldConfirmModify(),
         reason: '将生成新的 PowerPoint 演示文件',
       },
     ],
@@ -125,6 +170,18 @@ const TOOL_PERMISSION_RULES: Record<string, {
     defaultRequireApproval: true,
     scenarios: [
       {
+        condition: (input: any) => !shouldConfirmCommand(),
+        risk: 'medium',
+        requireApproval: false,
+        reason: '已关闭命令执行前确认',
+      },
+      {
+        condition: (input: any) => isAutoApprovedCommand(input),
+        risk: 'low',
+        requireApproval: false,
+        reason: '将执行低风险的只读或本地构建/测试命令',
+      },
+      {
         condition: (input: any) => {
           const cmd = (input as any)?.command || ''
           const args = (input as any)?.args || []
@@ -132,7 +189,7 @@ const TOOL_PERMISSION_RULES: Record<string, {
           return ['npm run build', 'npm run test', 'npm run lint', 'npm test'].includes(fullCmd)
         },
         risk: 'medium',
-        requireApproval: true,
+        requireApproval: shouldConfirmCommand(),
         reason: '将执行项目构建/测试命令',
       },
       {
@@ -141,13 +198,13 @@ const TOOL_PERMISSION_RULES: Record<string, {
           return cmd === 'npm' || cmd === 'git'
         },
         risk: 'medium',
-        requireApproval: true,
+        requireApproval: shouldConfirmCommand(),
         reason: '将执行包管理/Git 命令',
       },
       {
         condition: () => true,
         risk: 'high',
-        requireApproval: true,
+        requireApproval: shouldConfirmCommand(),
         reason: '将执行受限命令',
       },
     ],

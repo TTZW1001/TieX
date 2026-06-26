@@ -160,6 +160,16 @@ export async function runCommand(input: RunCommandInput): Promise<CommandSession
 
   sessionMap.set(sessionId, session)
 
+  if (taskId) {
+    taskEventBus.emit({
+      type: 'command:started',
+      taskId,
+      sessionId,
+      command,
+      args,
+    } as any)
+  }
+
   return new Promise<CommandSession>((resolve) => {
     const env = filterEnv(cwd)
 
