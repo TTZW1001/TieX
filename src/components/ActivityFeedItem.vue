@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import MarkdownIt from 'markdown-it'
 import {
   Loader2,
   CheckCircle2,
@@ -24,6 +25,14 @@ export type ActivityEntry =
       createdAt: string
       title: string
       status: 'running' | 'completed' | 'failed' | 'stopped'
+      detail?: string
+    }
+  | {
+      id: string
+      kind: 'agent'
+      createdAt: string
+      title: string
+      status: 'running' | 'completed' | 'failed'
       detail?: string
     }
   | {
@@ -69,6 +78,11 @@ const { entry } = defineProps<{
 const taskStore = useTaskStore()
 const uiStore = useUiStore()
 const processingPermissionId = ref<string | null>(null)
+const md = new MarkdownIt({
+  html: false,
+  linkify: true,
+  typographer: true,
+})
 
 const activePermissionId = computed(() => uiStore.currentPermissionRequest?.requestId || null)
 
@@ -78,6 +92,7 @@ function kindLabel(kind: ActivityEntry['kind']): string {
     case 'tool': return '工具'
     case 'command': return '命令'
     case 'permission': return '确认'
+    case 'agent': return 'Agent'
     case 'artifact': return '产物'
     default: return kind
   }
@@ -96,6 +111,11 @@ function entryIcon(entry: ActivityEntry) {
     return XCircle
   }
   if (entry.kind === 'artifact') return FileOutput
+  if (entry.kind === 'agent') {
+    if (entry.status === 'running') return Loader2
+    if (entry.status === 'completed') return CheckCircle2
+    return XCircle
+  }
   if (entry.kind === 'tool') {
     if (entry.status === 'running') return Wrench
     if (entry.status === 'completed') return CheckCircle2
@@ -152,7 +172,11 @@ function isExpandable(entry: ActivityEntry): boolean {
 }
 
 function defaultExpanded(entry: ActivityEntry): boolean {
-  return (entry.kind === 'permission' && entry.status === 'waiting') || entry.kind === 'command'
+  return (entry.kind === 'permission' && entry.status === 'waiting') || entry.kind === 'command' || entry.kind === 'agent'
+}
+
+function renderMarkdown(content: string) {
+  return md.render(content)
 }
 
 async function submitPermissionDecision(request: PermissionRequestInfo, decision: PermissionDecision) {
@@ -209,7 +233,7 @@ async function handleManualPlan(request: PermissionRequestInfo) {
       </summary>
 
       <div class="activity-panel">
-        <div v-if="entry.detail" class="activity-detail">{{ entry.detail }}</div>
+        <div v-if="entry.detail" class="activity-detail markdown-body" v-html="renderMarkdown(entry.detail)" />
 
         <div
           v-if="entry.kind === 'permission' && entry.status === 'waiting' && getPermissionRequest(entry.requestId)"
@@ -264,7 +288,7 @@ async function handleManualPlan(request: PermissionRequestInfo) {
         <span class="activity-time">{{ formatTime(entry.createdAt) }}</span>
         <span class="activity-badge" :class="statusClass(entry)">{{ statusLabel(entry) }}</span>
       </div>
-      <div v-if="entry.detail" class="activity-detail">{{ entry.detail }}</div>
+      <div v-if="entry.detail" class="activity-detail markdown-body" v-html="renderMarkdown(entry.detail)" />
     </div>
   </div>
 </template>
@@ -383,6 +407,14 @@ details[open] > .activity-summary .activity-caret {
   font-size: 13px;
   line-height: 1.6;
   color: var(--muted);
+}
+
+.activity-detail :deep(p) {
+  margin: 0 0 10px;
+}
+
+.activity-detail :deep(p:last-child) {
+  margin-bottom: 0;
 }
 
 .status-running .activity-node {

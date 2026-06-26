@@ -7,9 +7,11 @@ import { TaskRepository } from '../database/repositories/task.repository'
 import { TaskStepRepository } from '../database/repositories/task-step.repository'
 import { OperationLogRepository } from '../database/repositories/operation-log.repository'
 import { MessageRepository } from '../database/repositories/message.repository'
+import { MessageAttachmentRepository } from '../database/repositories/message-attachment.repository'
 import { ConversationRepository } from '../database/repositories/conversation.repository'
 import { ProviderRepository } from '../database/repositories/provider.repository'
 import { WorkspaceRepository } from '../database/repositories/workspace.repository'
+import { SettingsRepository } from '../database/repositories/settings.repository'
 import type { ProviderConfig } from '../providers/model-provider'
 import type {
   TaskEntity,
@@ -19,14 +21,21 @@ import type {
   TaskInfo,
 } from '../../shared/types'
 import { taskEventBus } from '../shared/event-bus'
+import { normalizeAttachmentInput, readAttachmentSize } from '../services/attachment-utils'
+import { MemoryService } from '../services/memory.service'
+import { getProviderCapabilities } from '../providers/provider-capabilities'
+import { AGENT_PROFILES, MULTI_AGENT_ENABLED_KEY, type AgentRole } from './agent-profiles'
 
 const taskRepo = new TaskRepository()
 const taskStepRepo = new TaskStepRepository()
 const operationLogRepo = new OperationLogRepository()
 const messageRepo = new MessageRepository()
+const attachmentRepo = new MessageAttachmentRepository()
 const conversationRepo = new ConversationRepository()
 const providerRepo = new ProviderRepository()
 const workspaceRepo = new WorkspaceRepository()
+const settingsRepo = new SettingsRepository()
+const memoryService = new MemoryService()
 
 /** 运行时上下文 */
 export interface RuntimeContext {
@@ -39,6 +48,11 @@ export interface RuntimeContext {
   workspaceRootName?: string
   permissionMode: PermissionMode
   providerConfig: ProviderConfig
+  multiAgentEnabled: boolean
+  responderConfig: { providerConfig: ProviderConfig; prompt: string }
+  collaboratorConfigs: Partial<Record<Exclude<AgentRole, 'implementation' | 'responder'>, { providerConfig: ProviderConfig; prompt: string }>>
+  implementationPrompt: string
+  collaboratorNotes: Partial<Record<Exclude<AgentRole, 'implementation' | 'responder'>, string>>
   userContent: string
   userMessageId: string
 
@@ -85,11 +99,32 @@ class TaskControllerImpl {
     }
 
     // 获取 Provider
-    const providerId = conversation.provider_id
-    if (!providerId) {
+    const conversationProviderId = conversation.provider_id
+    if (!conversationProviderId) {
       throw new Error('会话未关联模型服务商')
     }
-    const providerConfig = await this.getProviderConfig(providerId)
+    const multiAgentEnabled = (settingsRepo.get(MULTI_AGENT_ENABLED_KEY) ?? 'true') === 'true'
+    const responderProviderId =
+      this.readConfiguredProviderId('responder') ??
+      conversationProviderId
+    const responderConfig = {
+      providerConfig: await this.getProviderConfig(responderProviderId),
+      prompt: this.readConfiguredPrompt('responder'),
+    }
+    const implementationProviderId =
+      this.readConfiguredProviderId('implementation') ??
+      conversationProviderId
+    const providerConfig = await this.getProviderConfig(implementationProviderId)
+    if ((request.attachments?.length ?? 0) > 0) {
+      const capability = getProviderCapabilities(providerConfig.providerType, providerConfig.model)
+      if (!capability.supportsMultimodal) {
+        throw new Error('当前模型不支持附件输入，请切换到支持多模态的模型')
+      }
+    }
+
+    const collaboratorConfigs = multiAgentEnabled
+      ? await this.loadCollaboratorConfigs(conversationProviderId)
+      : {}
 
     // 获取工作区信息
     let workspaceRoot: string | undefined
@@ -114,6 +149,23 @@ class TaskControllerImpl {
       content: request.content.trim(),
       sequence_no: nextSeq,
     })
+    if (request.attachments && request.attachments.length > 0) {
+      attachmentRepo.createMany(
+        request.attachments.map((attachment) => {
+          const normalized = normalizeAttachmentInput(attachment)
+          return {
+            message_id: userMessage.id,
+            conversation_id: request.conversationId,
+            kind: normalized.kind,
+            file_name: normalized.name,
+            mime_type: normalized.mimeType ?? null,
+            original_path: normalized.path,
+            size_bytes: normalized.size ?? readAttachmentSize(normalized.path),
+          }
+        })
+      )
+    }
+    memoryService.ingestUserMessage(request.content.trim(), userMessage.id, workspaceId ?? conversation.workspace_id ?? null)
 
     // 自动标题
     if (conversation.title === '新对话') {
@@ -123,13 +175,12 @@ class TaskControllerImpl {
 
     // 创建任务记录
     const taskId = randomUUID()
-    // 阶段八：有工作区时默认使用 command 模式（支持命令执行）
-    const permissionMode: PermissionMode = workspaceRoot ? 'command' : 'chat'
+    const permissionMode = workspaceRoot ? this.getDefaultWorkspacePermissionMode(conversation.permission_mode) : 'chat'
     taskRepo.create({
       id: taskId,
       conversation_id: request.conversationId,
       user_message_id: userMessage.id,
-      provider_id: providerId,
+      provider_id: implementationProviderId,
       workspace_id: workspaceId ?? null,
       permission_mode: permissionMode,
       title: request.title ?? request.content.trim().slice(0, 50),
@@ -147,13 +198,18 @@ class TaskControllerImpl {
     const runtime: RuntimeContext = {
       taskId,
       conversationId: request.conversationId,
-      providerId,
+      providerId: implementationProviderId,
       workspaceId: workspaceId ?? null,
       workspaceRoot,
       workspaceName,
       workspaceRootName,
       permissionMode,
       providerConfig,
+      multiAgentEnabled,
+      responderConfig,
+      collaboratorConfigs,
+      implementationPrompt: this.readConfiguredPrompt('implementation'),
+      collaboratorNotes: {},
       userContent: request.content.trim(),
       userMessageId: userMessage.id,
       round: 0,
@@ -166,6 +222,55 @@ class TaskControllerImpl {
     this.runtimes.set(taskId, runtime)
 
     return { taskId, runtime }
+  }
+
+  private readConfiguredProviderId(role: AgentRole): string | null {
+    const profile = AGENT_PROFILES.find((item) => item.role === role)
+    const raw = profile ? settingsRepo.get(profile.providerKey) : null
+    const trimmed = raw?.trim() ?? ''
+    return trimmed || null
+  }
+
+  private readConfiguredPrompt(role: AgentRole): string {
+    const profile = AGENT_PROFILES.find((item) => item.role === role)
+    if (!profile) return ''
+    return (settingsRepo.get(profile.promptKey) ?? profile.defaultPrompt).trim()
+  }
+
+  private async loadCollaboratorConfigs(conversationProviderId: string) {
+    const roles: Array<Exclude<AgentRole, 'implementation' | 'responder'>> = ['research', 'memory']
+    const entries = await Promise.all(
+      roles.map(async (role) => {
+        const providerId = this.readConfiguredProviderId(role) ?? conversationProviderId
+        return [
+          role,
+          {
+            providerConfig: await this.getProviderConfig(providerId),
+            prompt: this.readConfiguredPrompt(role),
+          },
+        ] as const
+      })
+    )
+
+    return Object.fromEntries(entries) as Partial<
+      Record<Exclude<AgentRole, 'implementation' | 'responder'>, { providerConfig: ProviderConfig; prompt: string }>
+    >
+  }
+
+  private getDefaultWorkspacePermissionMode(
+    conversationMode?: string | null
+  ): PermissionMode {
+    const allowedModes: PermissionMode[] = ['read', 'execute', 'command']
+    if (conversationMode && allowedModes.includes(conversationMode as PermissionMode)) {
+      return conversationMode as PermissionMode
+    }
+
+    const configured = settingsRepo.get('default_permission_mode')
+    if (configured && allowedModes.includes(configured as PermissionMode)) {
+      return configured as PermissionMode
+    }
+
+    return 'read'
   }
 
   /**

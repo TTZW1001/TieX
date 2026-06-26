@@ -1,18 +1,23 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { FolderOpen, Send, Square } from 'lucide-vue-next'
+import { FolderOpen, Paperclip, Send, Square, X } from 'lucide-vue-next'
 import { useChatStore } from '@/stores/chat.store'
 import { useConversationStore } from '@/stores/conversation.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
 import { useTaskStore } from '@/stores/task.store'
 import { useUiStore } from '@/stores/ui.store'
+import { useSettingsStore } from '@/stores/settings.store'
+import { supportsMultimodal } from '@/utils/provider-capabilities'
 
 const chatStore = useChatStore()
 const conversationStore = useConversationStore()
 const workspaceStore = useWorkspaceStore()
 const taskStore = useTaskStore()
 const uiStore = useUiStore()
+const settingsStore = useSettingsStore()
 const inputText = ref('')
+const fileInput = ref<HTMLInputElement | null>(null)
+const attachments = ref<Array<{ path: string; name: string; mimeType: string | null; size: number | null }>>([])
 
 const showStopButton = computed(() => taskStore.isRunning || chatStore.isStreaming)
 
@@ -38,7 +43,22 @@ const statusText = computed(() => {
   return '未绑定工作区'
 })
 
-const canSend = computed(() => !!inputText.value.trim() && !showStopButton.value)
+const canSend = computed(() => (!!inputText.value.trim() || attachments.value.length > 0) && !showStopButton.value)
+const currentProvider = computed(() => {
+  const conversation = conversationStore.conversations.find((item) => item.id === conversationStore.currentConversationId)
+  const provider = settingsStore.providers.find((item) => item.id === (conversation?.provider_id ?? settingsStore.providerId))
+  return provider ?? null
+})
+const canAttach = computed(() => {
+  const provider = currentProvider.value
+  if (!provider) return false
+  return supportsMultimodal(provider.provider_type, provider.model_name)
+})
+
+const attachmentLabel = computed(() => {
+  if (attachments.value.length === 0) return '添加附件'
+  return `已附加 ${attachments.value.length} 个文件`
+})
 
 watch(
   () => uiStore.composerDraft,
@@ -50,24 +70,28 @@ watch(
 )
 
 async function send() {
-  if (!inputText.value.trim() || showStopButton.value) return
+  if ((!inputText.value.trim() && attachments.value.length === 0) || showStopButton.value) return
 
   const conversationId = conversationStore.currentConversationId
   if (!conversationId) return
 
-  const content = inputText.value.trim()
+  const content = inputText.value.trim() || '请结合我附加的内容继续。'
+  const currentAttachments = attachments.value.map((attachment) => ({ ...attachment }))
   inputText.value = ''
+  attachments.value = []
+  if (fileInput.value) fileInput.value.value = ''
 
   try {
     if (workspaceStore.currentWorkspaceId) {
       const taskId = await chatStore.sendAgentMessage(conversationId, content, {
         workspaceId: workspaceStore.currentWorkspaceId,
+        attachments: currentAttachments,
       })
       if (taskId) {
         taskStore.setCurrentTask(taskId)
       }
     } else {
-      await chatStore.sendMessage(conversationId, content)
+      await chatStore.sendMessage(conversationId, content, currentAttachments)
     }
 
     conversationStore.loadConversations()
@@ -85,6 +109,32 @@ function stop() {
 
 async function selectWorkspace() {
   await workspaceStore.selectWorkspace()
+}
+
+function triggerAttachmentPicker() {
+  if (!canAttach.value) return
+  fileInput.value?.click()
+}
+
+function removeAttachment(index: number) {
+  attachments.value.splice(index, 1)
+}
+
+function handleFileChange(event: Event) {
+  if (!canAttach.value) return
+  const target = event.target as HTMLInputElement | null
+  const files = target?.files ? Array.from(target.files) : []
+  attachments.value = files
+    .map((file) => {
+      const maybeFile = file as File & { path?: string }
+      return {
+        path: maybeFile.path || '',
+        name: file.name,
+        mimeType: file.type || null,
+        size: Number.isFinite(file.size) ? file.size : null,
+      }
+    })
+    .filter((file) => !!file.path)
 }
 </script>
 
@@ -105,10 +155,18 @@ async function selectWorkspace() {
       ></textarea>
 
       <div class="composer-footer">
-        <button class="chip workspace-chip" @click="selectWorkspace">
-          <FolderOpen :size="14" />
-          {{ workspaceStore.hasWorkspace ? workspaceStore.currentWorkspaceName : '选择工作区' }}
-        </button>
+        <div class="composer-left">
+          <button class="chip workspace-chip" @click="selectWorkspace">
+            <FolderOpen :size="14" />
+            {{ workspaceStore.hasWorkspace ? workspaceStore.currentWorkspaceName : '选择工作区' }}
+          </button>
+          <button class="chip attachment-chip" :class="{ disabled: !canAttach }" @click="triggerAttachmentPicker">
+            <Paperclip :size="14" />
+            {{ canAttach ? attachmentLabel : '当前模型不支持附件' }}
+          </button>
+          <div v-if="!canAttach" class="attachment-hint">切换到支持多模态的模型后可上传附件。</div>
+          <input ref="fileInput" type="file" multiple class="hidden-file-input" @change="handleFileChange" />
+        </div>
 
         <button v-if="showStopButton" class="send-btn stop-btn" @click="stop">
           <Square :size="14" /> 停止
@@ -116,6 +174,15 @@ async function selectWorkspace() {
         <button v-else class="send-btn" @click="send" :disabled="!canSend">
           <Send :size="14" /> 发送
         </button>
+      </div>
+
+      <div v-if="attachments.length > 0" class="attachment-list">
+        <div v-for="(attachment, index) in attachments" :key="`${attachment.path}-${index}`" class="attachment-pill">
+          <span class="attachment-name">{{ attachment.name }}</span>
+          <button class="attachment-remove" @click="removeAttachment(index)">
+            <X :size="12" />
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -201,11 +268,67 @@ async function selectWorkspace() {
   margin-top: 12px;
 }
 
+.composer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.attachment-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .workspace-chip {
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.attachment-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  color: var(--muted);
+  max-width: 100%;
+}
+
+.attachment-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-remove {
+  border: 0;
+  background: transparent;
+  color: var(--muted-soft);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.attachment-chip.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .stop-btn {

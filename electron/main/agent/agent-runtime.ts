@@ -13,7 +13,7 @@ import type { PermissionMode, TaskStatus } from '../../shared/types'
 import { taskController, type RuntimeContext, type TaskLimits } from './task-controller'
 import { buildContext, toApiMessages, type ContextMessage } from './context-builder'
 import { StreamAccumulator } from './response-parser'
-import { DEFAULT_TASK_LIMITS, checkWithinLimits, TaskLimitExceededError } from './task-limits'
+import { checkWithinLimits, TaskLimitExceededError, loadTaskLimitsFromSettings } from './task-limits'
 import { executeToolCall, checkToolPermission, createPermissionRequest } from '../tools/tool-executor'
 import { getProvider } from '../providers/provider-factory'
 import { MessageRepository } from '../database/repositories/message.repository'
@@ -21,10 +21,21 @@ import { TaskStepRepository } from '../database/repositories/task-step.repositor
 import { OperationLogRepository } from '../database/repositories/operation-log.repository'
 import { taskEventBus } from '../shared/event-bus'
 import type { CreateTaskRequest } from '../../shared/types'
+import { MemoryService } from '../services/memory.service'
+import { buildSystemPrompt } from './system-prompt'
+import type { AgentRole } from './agent-profiles'
 
 const messageRepo = new MessageRepository()
 const taskStepRepo = new TaskStepRepository()
 const operationLogRepo = new OperationLogRepository()
+const memoryService = new MemoryService()
+
+interface AgentRoutePlan {
+  useResearch: boolean
+  useMemory: boolean
+  useImplementation: boolean
+  reason: string
+}
 
 /** 启动 Agent 任务输入 */
 export interface StartAgentTaskInput {
@@ -96,13 +107,31 @@ export function rejectAllPendingPermissions(taskId: string): void {
  */
 export async function runAgent(runtime: RuntimeContext): Promise<void> {
   const { taskId, conversationId, abortController } = runtime
-  const limits: TaskLimits = { ...DEFAULT_TASK_LIMITS }
+  const limits: TaskLimits = loadTaskLimitsFromSettings()
 
   // 标记任务为 running
   taskController.updateTaskStatus(taskId, 'running')
   taskEventBus.emit({ type: 'task:started', taskId })
 
   let assistantMessage = createStreamingAssistantMessage(conversationId, taskId)
+  const routePlan = await routeByResponder(runtime)
+  await prepareCollaboratorNotes(runtime, routePlan)
+
+  if (!routePlan.useImplementation) {
+    const finalReply = await runResponderPass(runtime, '')
+    messageRepo.updateContent(assistantMessage.id, finalReply)
+    messageRepo.setStreaming(assistantMessage.id, 0)
+    const textSeq = taskStepRepo.getNextSequenceNo(taskId)
+    const textStep = taskStepRepo.create({
+      task_id: taskId,
+      sequence_no: textSeq,
+      step_type: 'text_response',
+      content: finalReply.slice(0, 200),
+    })
+    taskStepRepo.updateStatus(textStep.id, 'completed')
+    await finishTask(runtime, 'completed', assistantMessage.id)
+    return
+  }
 
   let pendingToolCalls: Array<{ toolCall: ModelToolCall; result: ToolExecutionResult }> | undefined
 
@@ -138,10 +167,14 @@ export async function runAgent(runtime: RuntimeContext): Promise<void> {
       const { messages, tools } = buildContext({
         taskId,
         conversationId,
+        workspaceId: runtime.workspaceId ?? null,
+        providerType: runtime.providerConfig.providerType,
         permissionMode: runtime.permissionMode,
         workspaceName: runtime.workspaceName,
         workspaceRootName: runtime.workspaceRootName,
         userContent: runtime.userContent,
+        implementationPrompt: runtime.implementationPrompt,
+        collaboratorNotes: runtime.collaboratorNotes,
         pendingToolCalls,
       })
 
@@ -168,6 +201,7 @@ export async function runAgent(runtime: RuntimeContext): Promise<void> {
       // 调用模型
       const accumulator = new StreamAccumulator()
       let modelError: { code: string; message: string } | null = null
+      let usageTotalTokens: number | null = null
 
       try {
         const provider = getProvider(runtime.providerConfig.providerType)
@@ -190,8 +224,10 @@ export async function runAgent(runtime: RuntimeContext): Promise<void> {
           } else if (streamEvent.type === 'tool_call_delta') {
             accumulator.processDelta({ tool_calls: streamEvent.delta })
           } else if (streamEvent.type === 'finish') {
+            usageTotalTokens = streamEvent.usage?.totalTokens ?? usageTotalTokens
             accumulator.setFinishReason(streamEvent.reason)
           } else if (streamEvent.type === 'done') {
+            usageTotalTokens = streamEvent.usage?.totalTokens ?? usageTotalTokens
             break
           } else if (streamEvent.type === 'error') {
             modelError = {
@@ -249,11 +285,14 @@ export async function runAgent(runtime: RuntimeContext): Promise<void> {
       // 解析模型响应
       const modelResponse = accumulator.parseResponse()
       runtime.round += 1
+      messageRepo.updateTokenCount(assistantMessage.id, usageTotalTokens)
       taskStepRepo.updateStatus(modelStep.id, 'completed')
 
       // 处理最终文本
       if (modelResponse.type === 'final_text') {
-        messageRepo.updateContent(assistantMessage.id, modelResponse.content)
+        const implementationOutput = modelResponse.content
+        const finalReply = await runResponderPass(runtime, implementationOutput)
+        messageRepo.updateContent(assistantMessage.id, finalReply)
         messageRepo.setStreaming(assistantMessage.id, 0)
 
         // 创建 text_response 步骤
@@ -262,15 +301,24 @@ export async function runAgent(runtime: RuntimeContext): Promise<void> {
           task_id: taskId,
           sequence_no: textSeq,
           step_type: 'text_response',
-          content: modelResponse.content.slice(0, 200),
+          content: finalReply.slice(0, 200),
         })
         taskStepRepo.updateStatus(textStep.id, 'completed')
+
+        const implSeq = taskStepRepo.getNextSequenceNo(taskId)
+        const implStep = taskStepRepo.create({
+          task_id: taskId,
+          sequence_no: implSeq,
+          step_type: 'implementation_result',
+          content: implementationOutput.slice(0, 4000),
+        })
+        taskStepRepo.updateStatus(implStep.id, 'completed')
 
         operationLogRepo.create({
           task_id: taskId,
           conversation_id: conversationId,
           log_type: 'task_completed',
-          message: '任务完成，模型输出最终答复',
+          message: '任务完成，主对话 Agent 已输出最终答复',
         })
 
         await finishTask(runtime, 'completed', assistantMessage.id)
@@ -498,6 +546,310 @@ export async function runAgent(runtime: RuntimeContext): Promise<void> {
   }
 }
 
+async function prepareCollaboratorNotes(runtime: RuntimeContext, routePlan: AgentRoutePlan): Promise<void> {
+  if (!runtime.multiAgentEnabled) {
+    return
+  }
+
+  const roles: Array<Exclude<AgentRole, 'implementation' | 'responder'>> = []
+  if (routePlan.useResearch) roles.push('research')
+  if (routePlan.useMemory) roles.push('memory')
+
+  for (const role of roles) {
+    const config = runtime.collaboratorConfigs[role]
+    if (!config) continue
+    const label = role === 'research' ? '资料整理 Agent' : '规则记忆 Agent'
+
+    const seqNo = taskStepRepo.getNextSequenceNo(runtime.taskId)
+    const step = taskStepRepo.create({
+      task_id: runtime.taskId,
+      sequence_no: seqNo,
+      step_type: 'agent_brief',
+      content: `${label} 正在生成内部简报`,
+    })
+    taskStepRepo.updateStatus(step.id, 'running')
+
+    try {
+      const note = await runCollaboratorAgentPass(role, runtime, config.providerConfig, config.prompt)
+      runtime.collaboratorNotes[role] = note
+      taskStepRepo.updateContent(step.id, `[${label}]\n\n${note}`.slice(0, 4000))
+      taskStepRepo.updateStatus(step.id, 'completed')
+      operationLogRepo.create({
+        task_id: runtime.taskId,
+        conversation_id: runtime.conversationId,
+        log_type: 'multi_agent_brief',
+        message: `${label} 已生成内部简报`,
+        details: note.slice(0, 1000),
+      })
+    } catch (err: any) {
+      taskStepRepo.updateStatus(step.id, 'failed')
+      operationLogRepo.create({
+        task_id: runtime.taskId,
+        conversation_id: runtime.conversationId,
+        log_type: 'multi_agent_brief_failed',
+        level: 'warn',
+        message: `${label} 生成失败，继续使用主 Agent`,
+        details: err?.message || String(err),
+      })
+    }
+  }
+}
+
+async function routeByResponder(runtime: RuntimeContext): Promise<AgentRoutePlan> {
+  const seqNo = taskStepRepo.getNextSequenceNo(runtime.taskId)
+  const step = taskStepRepo.create({
+    task_id: runtime.taskId,
+    sequence_no: seqNo,
+    step_type: 'agent_route',
+    content: '主对话 Agent 正在判断需要调用哪些 Agent',
+  })
+  taskStepRepo.updateStatus(step.id, 'running')
+
+  try {
+    const provider = getProvider(runtime.responderConfig.providerConfig.providerType)
+    const systemPrompt = buildSystemPrompt({
+      permissionMode: runtime.workspaceRoot ? 'read' : 'chat',
+      workspaceId: runtime.workspaceId ?? null,
+      workspaceName: runtime.workspaceName,
+      workspaceRootName: runtime.workspaceRootName,
+      agentRole: 'responder',
+      agentPromptOverride: runtime.responderConfig.prompt,
+    })
+
+    const messages = [
+      { role: 'system' as const, content: systemPrompt },
+      {
+        role: 'system' as const,
+        content:
+          '你现在是任务调度者。请判断这轮是否需要调用以下 Agent：资料整理 Agent、规则记忆 Agent、代码实现 Agent。' +
+          '如果用户只是普通问答或无需工作区执行，可以不调用代码实现 Agent。' +
+          '只输出 JSON，不要加解释。格式：{"useResearch":boolean,"useMemory":boolean,"useImplementation":boolean,"reason":"简短中文原因"}',
+      },
+      {
+        role: 'user' as const,
+        content: [
+          `用户请求：${runtime.userContent}`,
+          runtime.workspaceName ? `当前工作区：${runtime.workspaceName}` : '当前未绑定工作区',
+          `当前权限模式：${runtime.permissionMode}`,
+        ].join('\n'),
+      },
+    ]
+
+    let content = ''
+    for await (const event of provider.streamChat(
+      { messages, config: runtime.responderConfig.providerConfig },
+      runtime.abortController.signal
+    )) {
+      if (runtime.abortController.signal.aborted) {
+        throw new Error('主对话 Agent 路由已被中止')
+      }
+      if (event.type === 'delta') {
+        content += event.content
+      } else if (event.type === 'error') {
+        throw new Error(event.error.message)
+      } else if (event.type === 'done') {
+        break
+      }
+    }
+
+    const plan = parseRoutePlan(content, !!runtime.workspaceRoot)
+    taskStepRepo.updateContent(
+      step.id,
+      `[主对话 Agent]\n\n调用决策：${[
+        plan.useResearch ? '资料整理' : '',
+        plan.useMemory ? '规则记忆' : '',
+        plan.useImplementation ? '代码实现' : '',
+      ].filter(Boolean).join(' / ') || '无子 Agent'}\n\n原因：${plan.reason}`
+    )
+    taskStepRepo.updateStatus(step.id, 'completed')
+    return plan
+  } catch (err: any) {
+    const fallback: AgentRoutePlan = {
+      useResearch: !!runtime.workspaceRoot,
+      useMemory: !!runtime.workspaceRoot,
+      useImplementation: !!runtime.workspaceRoot,
+      reason: '路由失败，按保守默认策略处理',
+    }
+    taskStepRepo.updateContent(step.id, `[主对话 Agent]\n\n路由失败，已回退到默认策略。\n\n原因：${err?.message || String(err)}`)
+    taskStepRepo.updateStatus(step.id, 'failed')
+    return fallback
+  }
+}
+
+function parseRoutePlan(raw: string, hasWorkspace: boolean): AgentRoutePlan {
+  const match = raw.match(/\{[\s\S]*\}/)
+  const fallback: AgentRoutePlan = {
+    useResearch: hasWorkspace,
+    useMemory: hasWorkspace,
+    useImplementation: hasWorkspace,
+    reason: '未解析到有效路由结果，按默认策略处理',
+  }
+
+  if (!match) return fallback
+
+  try {
+    const parsed = JSON.parse(match[0])
+    return {
+      useResearch: Boolean(parsed.useResearch),
+      useMemory: Boolean(parsed.useMemory),
+      useImplementation: Boolean(parsed.useImplementation),
+      reason: typeof parsed.reason === 'string' && parsed.reason.trim() ? parsed.reason.trim() : fallback.reason,
+    }
+  } catch {
+    return fallback
+  }
+}
+
+async function runResponderPass(runtime: RuntimeContext, implementationOutput: string): Promise<string> {
+  const seqNo = taskStepRepo.getNextSequenceNo(runtime.taskId)
+  const step = taskStepRepo.create({
+    task_id: runtime.taskId,
+    sequence_no: seqNo,
+    step_type: 'agent_brief',
+    content: '主对话 Agent 正在整理最终回复',
+  })
+  taskStepRepo.updateStatus(step.id, 'running')
+
+  try {
+    const provider = getProvider(runtime.responderConfig.providerConfig.providerType)
+    const conversationSummary = memoryService.getConversationSummary(runtime.conversationId)?.summary ?? ''
+    const systemPrompt = buildSystemPrompt({
+      permissionMode: 'chat',
+      workspaceId: runtime.workspaceId ?? null,
+      workspaceName: runtime.workspaceName,
+      workspaceRootName: runtime.workspaceRootName,
+      agentRole: 'responder',
+      agentPromptOverride: runtime.responderConfig.prompt,
+    })
+
+    const messages = [
+      { role: 'system' as const, content: systemPrompt },
+      {
+        role: 'system' as const,
+        content: '你现在负责面向用户输出最终答复。禁止调用工具，禁止编造未发生的操作。请基于执行结果整理成自然中文回复。',
+      },
+      ...(conversationSummary
+        ? [{ role: 'system' as const, content: `当前会话摘要：\n${conversationSummary}` }]
+        : []),
+      ...(runtime.collaboratorNotes.research
+        ? [{ role: 'system' as const, content: `资料整理 Agent 简报：\n${runtime.collaboratorNotes.research}` }]
+        : []),
+      ...(runtime.collaboratorNotes.memory
+        ? [{ role: 'system' as const, content: `规则记忆 Agent 简报：\n${runtime.collaboratorNotes.memory}` }]
+        : []),
+      {
+        role: 'system' as const,
+        content: `代码实现 Agent 执行结论：\n${implementationOutput}`,
+      },
+      {
+        role: 'user' as const,
+        content: `请根据以上内容，对用户的原始请求给出最终回复。\n原始请求：${runtime.userContent}`,
+      },
+    ]
+
+    let content = ''
+    for await (const event of provider.streamChat(
+      { messages, config: runtime.responderConfig.providerConfig },
+      runtime.abortController.signal
+    )) {
+      if (runtime.abortController.signal.aborted) {
+        throw new Error('主对话 Agent 已被中止')
+      }
+      if (event.type === 'delta') {
+        content += event.content
+      } else if (event.type === 'error') {
+        throw new Error(event.error.message)
+      } else if (event.type === 'done') {
+        break
+      }
+    }
+
+    const finalReply = content.trim() || implementationOutput
+    taskStepRepo.updateContent(step.id, `[主对话 Agent]\n\n${finalReply}`.slice(0, 4000))
+    taskStepRepo.updateStatus(step.id, 'completed')
+    operationLogRepo.create({
+      task_id: runtime.taskId,
+      conversation_id: runtime.conversationId,
+      log_type: 'multi_agent_brief',
+      message: '主对话 Agent 已整理最终回复',
+      details: finalReply.slice(0, 1000),
+    })
+    return finalReply
+  } catch (err: any) {
+    taskStepRepo.updateStatus(step.id, 'failed')
+    operationLogRepo.create({
+      task_id: runtime.taskId,
+      conversation_id: runtime.conversationId,
+      log_type: 'multi_agent_brief_failed',
+      level: 'warn',
+      message: '主对话 Agent 整理失败，回退到代码实现 Agent 原始结论',
+      details: err?.message || String(err),
+    })
+    return implementationOutput
+  }
+}
+
+async function runCollaboratorAgentPass(
+  role: Exclude<AgentRole, 'implementation'>,
+  runtime: RuntimeContext,
+  providerConfig: RuntimeContext['providerConfig'],
+  prompt: string
+): Promise<string> {
+  const provider = getProvider(providerConfig.providerType)
+  const conversationSummary = memoryService.getConversationSummary(runtime.conversationId)?.summary ?? ''
+  const agentLabel = role === 'research' ? '资料整理 Agent' : '规则记忆 Agent'
+  const systemPrompt = buildSystemPrompt({
+    permissionMode: runtime.workspaceRoot ? 'read' : 'chat',
+    workspaceId: runtime.workspaceId ?? null,
+    workspaceName: runtime.workspaceName,
+    workspaceRootName: runtime.workspaceRootName,
+    agentRole: role,
+    agentPromptOverride: prompt,
+  })
+
+  const messages = [
+    { role: 'system' as const, content: systemPrompt },
+    {
+      role: 'system' as const,
+      content:
+        role === 'research'
+          ? '你现在只输出给实现 Agent 使用的内部简报。禁止调用工具，禁止直接对用户说话。请用简洁中文输出：目标、上下文、风险、建议顺序。'
+          : '你现在只输出给实现 Agent 使用的内部规则列表。禁止调用工具，禁止直接对用户说话。请用简洁中文输出：必须遵守、偏好、工作区规则、回避事项。',
+    },
+    ...(conversationSummary
+      ? [{ role: 'system' as const, content: `当前会话摘要：\n${conversationSummary}` }]
+      : []),
+    {
+      role: 'user' as const,
+      content: [
+        `当前用户任务：${runtime.userContent}`,
+        runtime.workspaceName ? `当前工作区：${runtime.workspaceName}` : '当前没有绑定工作区',
+        runtime.collaboratorNotes.research && role === 'memory'
+          ? `资料整理 Agent 已知简报：${runtime.collaboratorNotes.research}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    },
+  ]
+
+  let content = ''
+  for await (const event of provider.streamChat({ messages, config: providerConfig }, runtime.abortController.signal)) {
+    if (runtime.abortController.signal.aborted) {
+      throw new Error(`${agentLabel} 已被中止`)
+    }
+    if (event.type === 'delta') {
+      content += event.content
+    } else if (event.type === 'error') {
+      throw new Error(event.error.message)
+    } else if (event.type === 'done') {
+      break
+    }
+  }
+
+  return content.trim()
+}
+
 /**
  * 完成任务
  */
@@ -544,6 +896,10 @@ async function finishTask(
 
   // 清理权限等待器
   rejectAllPendingPermissions(taskId)
+  memoryService.refreshConversationSummary(conversationId)
+  if (runtime.workspaceId) {
+    memoryService.refreshWorkspaceRuleSummary(runtime.workspaceId)
+  }
 
   // 清理资源
   taskController.cleanup(taskId)

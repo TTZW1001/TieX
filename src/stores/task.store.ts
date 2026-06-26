@@ -322,6 +322,16 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
+  async function rollbackTask(taskId: string): Promise<{ success: boolean; restoredCount: number; message?: string }> {
+    if (!window.tiex) return { success: false, restoredCount: 0, message: 'IPC 不可用' }
+    try {
+      return await window.tiex.task.rollback(taskId)
+    } catch (err: any) {
+      console.error('Failed to rollback task:', err)
+      return { success: false, restoredCount: 0, message: err?.message || '回滚失败' }
+    }
+  }
+
   /**
    * 加载会话的任务列表
    */
@@ -442,6 +452,7 @@ export const useTaskStore = defineStore('task', () => {
     commandSessions,
     startTask,
     stopTask,
+    rollbackTask,
     loadConversationTasks,
     setCurrentTask,
     refreshTaskDetails,

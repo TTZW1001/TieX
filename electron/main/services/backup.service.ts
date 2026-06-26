@@ -6,6 +6,9 @@ import { app } from 'electron'
 import { join, dirname, relative } from 'path'
 import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, unlinkSync, renameSync } from 'fs'
 import { createHash } from 'crypto'
+import { SettingsRepository } from '../database/repositories/settings.repository'
+
+const settingsRepo = new SettingsRepository()
 
 /** 备份根目录 */
 function getBackupRoot(): string {
@@ -57,6 +60,16 @@ export function atomicWriteFile(filePath: string, content: string): void {
       }
     } catch {}
     throw err
+  }
+}
+
+export function isAutoBackupEnabled(): boolean {
+  try {
+    const raw = settingsRepo.get('auto_backup')
+    if (raw === null) return true
+    return raw === 'true'
+  } catch {
+    return true
   }
 }
 

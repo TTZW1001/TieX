@@ -8,8 +8,13 @@ import type { PermissionMode } from '../../shared/types'
 import { buildSystemPrompt } from './system-prompt'
 import { toolRegistry } from '../tools/tool-registry'
 import { MessageRepository } from '../database/repositories/message.repository'
+import { MessageAttachmentRepository } from '../database/repositories/message-attachment.repository'
+import { toAttachmentContentParts } from '../services/attachment-utils'
+import { MemoryService } from '../services/memory.service'
 
 const messageRepo = new MessageRepository()
+const attachmentRepo = new MessageAttachmentRepository()
+const memoryService = new MemoryService()
 
 /** 上下文消息（扩展 ChatMessage 支持工具调用） */
 export interface ContextMessage {
@@ -27,10 +32,14 @@ export interface ContextMessage {
 export interface BuildContextOptions {
   taskId: string
   conversationId: string
+  workspaceId?: string | null
+  providerType: string
   permissionMode: PermissionMode
   workspaceName?: string
   workspaceRootName?: string
   userContent: string
+  implementationPrompt?: string
+  collaboratorNotes?: Partial<Record<'research' | 'memory', string>>
   /** 上一轮的工具调用和结果 */
   pendingToolCalls?: Array<{
     toolCall: ModelToolCall
@@ -59,16 +68,48 @@ export function buildContext(options: BuildContextOptions): {
   // 1. 系统提示词
   const systemPrompt = buildSystemPrompt({
     permissionMode,
+    workspaceId: options.workspaceId ?? null,
     workspaceName,
     workspaceRootName,
+    agentRole: 'implementation',
+    agentPromptOverride: options.implementationPrompt,
   })
 
   const messages: ContextMessage[] = [
     { role: 'system', content: systemPrompt },
   ]
 
+  const conversationSummary = memoryService.getConversationSummary(options.conversationId)
+  if (conversationSummary?.summary) {
+    messages.push({
+      role: 'system',
+      content: `会话摘要记忆：\n${conversationSummary.summary}`,
+    })
+  }
+
+  if (options.collaboratorNotes?.research) {
+    messages.push({
+      role: 'system',
+      content: `资料整理 Agent 内部简报：\n${options.collaboratorNotes.research}`,
+    })
+  }
+
+  if (options.collaboratorNotes?.memory) {
+    messages.push({
+      role: 'system',
+      content: `规则记忆 Agent 内部简报：\n${options.collaboratorNotes.memory}`,
+    })
+  }
+
   // 2. 会话历史
   const historyMessages = messageRepo.getByConversationId(options.conversationId)
+  const attachments = attachmentRepo.getByConversationId(options.conversationId)
+  const attachmentsByMessage = new Map<string, typeof attachments>()
+  for (const attachment of attachments) {
+    const bucket = attachmentsByMessage.get(attachment.message_id) ?? []
+    bucket.push(attachment)
+    attachmentsByMessage.set(attachment.message_id, bucket)
+  }
   // 过滤掉当前任务的用户消息（避免重复），取最近的消息
   const recentHistory = historyMessages.slice(-MAX_HISTORY_MESSAGES)
 
@@ -78,10 +119,21 @@ export function buildContext(options: BuildContextOptions): {
       if (msg.role === 'assistant' && (!msg.content || msg.content.trim() === '')) {
         continue
       }
-      messages.push({
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content,
-      })
+      const messageAttachments = attachmentsByMessage.get(msg.id) ?? []
+      if (msg.role === 'user' && messageAttachments.length > 0) {
+        messages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: msg.content },
+            ...toAttachmentContentParts(messageAttachments, options.providerType),
+          ] as any,
+        })
+      } else {
+        messages.push({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+        })
+      }
     }
   }
 

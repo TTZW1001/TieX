@@ -10,6 +10,7 @@ const props = defineProps<{
 }>()
 defineEmits<{
   (e: 'retry', message: ChatMessage): void
+  (e: 'branch', message: ChatMessage): void
 }>()
 
 const workspaceStore = useWorkspaceStore()
@@ -31,6 +32,11 @@ const renderedContent = computed(() => {
 const isUser = computed(() => props.message.role === 'user')
 const isStreaming = computed(() => props.message.isStreaming === 1)
 const hasError = computed(() => !!props.message.error)
+const hasAttachments = computed(() => (props.message.attachments?.length ?? 0) > 0)
+
+function openAttachment(path: string) {
+  window.tiex?.shell.openPath(path)
+}
 
 /**
  * 规范化本地路径
@@ -203,6 +209,20 @@ onBeforeUnmount(() => {
         {{ message.content }}
       </div>
       <div v-else class="bubble-content markdown-body" v-html="renderedContent"></div>
+      <div v-if="hasAttachments" class="attachment-strip">
+        <button
+          v-for="attachment in message.attachments"
+          :key="attachment.id"
+          class="attachment-chip"
+          @click="openAttachment(attachment.originalPath)"
+        >
+          <span class="attachment-kind">{{ attachment.kind === 'image' ? '图片' : '文件' }}</span>
+          <span class="attachment-label">{{ attachment.fileName }}</span>
+        </button>
+      </div>
+      <div class="message-actions" v-if="!isStreaming">
+        <button class="action-btn" @click="$emit('branch', message)">从这里分支</button>
+      </div>
       <div v-if="isStreaming" class="streaming-cursor"></div>
       <div v-if="hasError" class="error-block">
         <span class="error-text">{{ message.error!.message }}</span>
@@ -218,6 +238,52 @@ onBeforeUnmount(() => {
   gap: 16px;
   margin-bottom: 34px;
   align-items: flex-start;
+}
+
+.attachment-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.attachment-kind {
+  font-size: 11px;
+  color: var(--muted-soft);
+}
+
+.attachment-label {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.action-btn {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
 }
 
 /* 用户消息：头像 + 气泡整体靠右 */

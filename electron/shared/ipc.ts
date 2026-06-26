@@ -8,8 +8,11 @@ export const IPC_SETTINGS_GET_DATA_DIRECTORY = 'settings:getDataDirectory'
 
 // 提供者相关
 export const IPC_PROVIDER_GET_DEFAULT = 'provider:getDefault'
+export const IPC_PROVIDER_LIST = 'provider:list'
 export const IPC_PROVIDER_GET_BY_ID = 'provider:getById'
+export const IPC_PROVIDER_CREATE = 'provider:create'
 export const IPC_PROVIDER_UPDATE = 'provider:update'
+export const IPC_PROVIDER_DELETE = 'provider:delete'
 export const IPC_PROVIDER_TEST_CONNECTION = 'provider:testConnection'
 export const IPC_PROVIDER_TEST_DRAFT = 'provider:testDraft'
 
@@ -18,6 +21,8 @@ export const IPC_CONVERSATION_CREATE = 'conversation:create'
 export const IPC_CONVERSATION_GET_RECENT = 'conversation:getRecent'
 export const IPC_CONVERSATION_GET_BY_ID = 'conversation:getById'
 export const IPC_CONVERSATION_UPDATE_TITLE = 'conversation:updateTitle'
+export const IPC_CONVERSATION_UPDATE_PROVIDER = 'conversation:updateProvider'
+export const IPC_CONVERSATION_BRANCH_FROM_MESSAGE = 'conversation:branchFromMessage'
 export const IPC_CONVERSATION_DELETE = 'conversation:delete'
 
 // 聊天相关
@@ -41,6 +46,16 @@ export const IPC_WORKSPACE_DELETE = 'workspace:delete'
 export const IPC_WORKSPACE_CHECK_AVAILABLE = 'workspace:checkAvailable'
 export const IPC_WORKSPACE_SWITCH = 'workspace:switch'
 
+// 记忆相关
+export const IPC_MEMORY_GET_GLOBAL = 'memory:getGlobal'
+export const IPC_MEMORY_SET_GLOBAL = 'memory:setGlobal'
+export const IPC_MEMORY_GET_WORKSPACE = 'memory:getWorkspace'
+export const IPC_MEMORY_SET_WORKSPACE = 'memory:setWorkspace'
+export const IPC_MEMORY_GET_CANDIDATES = 'memory:getCandidates'
+export const IPC_MEMORY_APPROVE_CANDIDATE = 'memory:approveCandidate'
+export const IPC_MEMORY_REJECT_CANDIDATE = 'memory:rejectCandidate'
+export const IPC_MEMORY_GET_CONVERSATION_SUMMARY = 'memory:getConversationSummary'
+
 // 文件工具相关
 export const IPC_FILE_LIST = 'file:list'
 export const IPC_FILE_READ = 'file:read'
@@ -54,6 +69,7 @@ export const IPC_TASK_GET_BY_CONVERSATION = 'task:getByConversation'
 export const IPC_TASK_GET_STEPS = 'task:getSteps'
 export const IPC_TASK_GET_TOOL_CALLS = 'task:getToolCalls'
 export const IPC_TASK_GET_LOGS = 'task:getLogs'
+export const IPC_TASK_ROLLBACK = 'task:rollback'
 
 // 任务事件（主进程→渲染进程）
 export const IPC_TASK_EVENT = 'task:event'
@@ -77,3 +93,7 @@ export const IPC_ARTIFACT_DELETE = 'artifact:delete'
 // 命令执行相关
 export const IPC_COMMAND_STOP = 'command:stop'
 export const IPC_COMMAND_GET_OUTPUT = 'command:getOutput'
+
+// 统计相关
+export const IPC_STATS_GET_OVERVIEW = 'stats:getOverview'
+export const IPC_STATS_GET_CONVERSATION_DETAIL = 'stats:getConversationDetail'

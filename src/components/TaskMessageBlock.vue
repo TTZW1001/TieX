@@ -10,6 +10,11 @@ const props = defineProps<{
   summaryMessage: ChatMessage | null
   processItems: ProcessStreamItem[]
   running: boolean
+  agentBadges?: Array<{
+    id: string
+    label: string
+    status: 'running' | 'completed' | 'failed'
+  }>
 }>()
 
 const md = new MarkdownIt({
@@ -33,7 +38,20 @@ const renderedSummary = computed(() => {
 
     <div class="bubble">
       <div class="author-row">
-        <div class="author">TieX</div>
+        <div class="author-group">
+          <div class="author">TieX</div>
+          <div class="author-subtitle">主对话 Agent 最终回复</div>
+        </div>
+        <div v-if="agentBadges?.length" class="agent-badge-row">
+          <span
+            v-for="badge in agentBadges"
+            :key="badge.id"
+            class="agent-badge"
+            :class="`status-${badge.status}`"
+          >
+            {{ badge.label }}
+          </span>
+        </div>
       </div>
 
       <ActivityProcessBlock
@@ -89,6 +107,13 @@ const renderedSummary = computed(() => {
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.author-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .author {
@@ -97,6 +122,45 @@ const renderedSummary = computed(() => {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--muted-soft);
+}
+
+.author-subtitle {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.agent-badge-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.agent-badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--muted);
+}
+
+.agent-badge.status-running {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.agent-badge.status-completed {
+  color: var(--success-strong);
+  border-color: color-mix(in srgb, var(--success) 30%, var(--line));
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.agent-badge.status-failed {
+  color: var(--danger-strong);
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--line));
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .final-summary {

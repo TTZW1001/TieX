@@ -32,6 +32,10 @@ function shouldConfirmCommand(): boolean {
 }
 
 function isAutoApprovedCommand(input: any): boolean {
+  if (shouldConfirmCommand()) {
+    return false
+  }
+
   const cmd = String(input?.command ?? '').toLowerCase()
   const args = Array.isArray(input?.args) ? input.args.map((arg: unknown) => String(arg).toLowerCase()) : []
   const firstArg = args[0] ?? ''
@@ -179,7 +183,7 @@ const TOOL_PERMISSION_RULES: Record<string, {
         condition: (input: any) => isAutoApprovedCommand(input),
         risk: 'low',
         requireApproval: false,
-        reason: '将执行低风险的只读或本地构建/测试命令',
+        reason: '已关闭命令执行前确认，将直接执行低风险命令',
       },
       {
         condition: (input: any) => {

@@ -34,6 +34,8 @@
   --sidebar-item-hover: rgba(204, 120, 92, 0.1);
   --sidebar-item-active: rgba(204, 120, 92, 0.16);
   --sidebar-pill-bg: #ebe5d4;
+  --sidebar-logo-bg: #f8f2e8;
+  --sidebar-logo-border: rgba(28, 46, 84, 0.1);
   --sidebar-divider: #e6dfd0;
   --topbar-bg: #f4eee0;
   --topbar-text: #1a1918;
@@ -131,6 +133,8 @@
   --sidebar-item-hover: rgba(255, 255, 255, 0.08);
   --sidebar-item-active: rgba(255, 255, 255, 0.14);
   --sidebar-pill-bg: rgba(255, 255, 255, 0.06);
+  --sidebar-logo-bg: linear-gradient(180deg, #f6efe3 0%, #ece3d4 100%);
+  --sidebar-logo-border: rgba(255, 255, 255, 0.12);
   --sidebar-divider: rgba(255, 255, 255, 0.08);
   --topbar-bg: #15191a;
   --topbar-text: #f5f2eb;

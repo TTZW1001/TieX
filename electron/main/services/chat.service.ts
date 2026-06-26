@@ -1,4 +1,5 @@
 import { MessageRepository } from '../database/repositories/message.repository'
+import { MessageAttachmentRepository } from '../database/repositories/message-attachment.repository'
 import { ConversationRepository } from '../database/repositories/conversation.repository'
 import { ProviderRepository } from '../database/repositories/provider.repository'
 import { buildSystemPrompt } from '../agent/system-prompt'
@@ -6,12 +7,17 @@ import { safeStorage } from 'electron'
 import { throttle } from '../utils/throttle'
 import { streamChatWithCallbacks } from '../utils/stream-chat'
 import type { ProviderConfig, ModelRequest, ChatMessage } from '../providers/model-provider'
-import type { ChatMessageVO, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent } from '../../shared/types'
+import type { AttachmentInput, ChatMessageVO, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent } from '../../shared/types'
 import type { IpcMainInvokeEvent } from 'electron'
+import { normalizeAttachmentInput, readAttachmentSize, toAttachmentContentParts } from './attachment-utils'
+import { MemoryService } from './memory.service'
+import { getProviderCapabilities } from '../providers/provider-capabilities'
 
 const messageRepo = new MessageRepository()
+const attachmentRepo = new MessageAttachmentRepository()
 const conversationRepo = new ConversationRepository()
 const providerRepo = new ProviderRepository()
+const memoryService = new MemoryService()
 
 // 当前活跃的 AbortController，按 conversationId 索引
 const activeControllers = new Map<string, AbortController>()
@@ -27,7 +33,8 @@ export class ChatService {
   async sendMessage(
     event: IpcMainInvokeEvent,
     conversationId: string,
-    content: string
+    content: string,
+    attachments: AttachmentInput[] = []
   ): Promise<ChatMessageVO> {
     if (!conversationId || typeof conversationId !== 'string') {
       throw new Error('conversationId 不能为空')
@@ -58,6 +65,23 @@ export class ChatService {
       content: content.trim(),
       sequence_no: nextSeq,
     })
+    if (attachments.length > 0) {
+      attachmentRepo.createMany(
+        attachments.map((attachment) => {
+          const normalized = normalizeAttachmentInput(attachment)
+          return {
+            message_id: userMessage.id,
+            conversation_id: conversationId,
+            kind: normalized.kind,
+            file_name: normalized.name,
+            mime_type: normalized.mimeType ?? null,
+            original_path: normalized.path,
+            size_bytes: normalized.size ?? readAttachmentSize(normalized.path),
+          }
+        })
+      )
+    }
+    memoryService.ingestUserMessage(content.trim(), userMessage.id, conversation.workspace_id ?? null)
 
     // 自动标题：首条消息截断
     if (conversation.title === '新对话') {
@@ -80,6 +104,13 @@ export class ChatService {
       providerConfig = await this.getProviderConfig(defaultProvider.id)
     }
 
+    if (attachments.length > 0) {
+      const capability = getProviderCapabilities(providerConfig.providerType, providerConfig.model)
+      if (!capability.supportsMultimodal) {
+        throw new Error('当前模型不支持附件输入，请切换到支持多模态的模型')
+      }
+    }
+
     // 创建 Assistant 消息（is_streaming = 1）
     const assistantMessage = messageRepo.create({
       conversation_id: conversationId,
@@ -92,7 +123,7 @@ export class ChatService {
     messageRepo.setStreaming(assistantMessage.id, 1)
 
     // 构建多轮上下文
-    const contextMessages = this.buildContext(conversationId)
+    const contextMessages = this.buildContext(conversationId, providerConfig.providerType)
 
     // 创建 AbortController
     const controller = new AbortController()
@@ -162,6 +193,7 @@ export class ChatService {
     modelRequest: ModelRequest,
     signal: AbortSignal
   ): Promise<void> {
+    let usageTotalTokens: number | null = null
     // 节流推送 delta 事件（50ms 间隔），减少 IPC 通信频率
     const throttledPushDelta = throttle((content: string, delta: string) => {
       // 更新数据库
@@ -184,7 +216,8 @@ export class ChatService {
         onDelta: (content, delta) => {
           throttledPushDelta(content, delta)
         },
-        onDone: () => {
+        onDone: (usage) => {
+          usageTotalTokens = usage?.totalTokens ?? usageTotalTokens
           throttledPushDelta.flush()
         },
         onError: (code, message) => {
@@ -204,7 +237,9 @@ export class ChatService {
 
       // 流式完成后更新最终内容
       messageRepo.updateContent(assistantMessageId, fullContent)
+      messageRepo.updateTokenCount(assistantMessageId, usageTotalTokens)
       messageRepo.setStreaming(assistantMessageId, 0)
+      memoryService.refreshConversationSummary(conversationId)
       const doneEvent: ChatDoneEvent = { messageId: assistantMessageId }
       try {
         event.sender.send('chat:done', doneEvent)
@@ -219,17 +254,39 @@ export class ChatService {
   /**
    * 构建多轮上下文
    */
-  private buildContext(conversationId: string): ChatMessage[] {
+  private buildContext(conversationId: string, providerType: string): ChatMessage[] {
     const allMessages = messageRepo.getByConversationId(conversationId)
     const systemPrompt = buildSystemPrompt({ permissionMode: 'chat' })
     const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }]
+    const conversationSummary = memoryService.getConversationSummary(conversationId)
+    if (conversationSummary?.summary) {
+      messages.push({ role: 'system', content: `会话摘要记忆：\n${conversationSummary.summary}` })
+    }
+    const attachments = attachmentRepo.getByConversationId(conversationId)
+    const attachmentsByMessage = new Map<string, typeof attachments>()
+    for (const attachment of attachments) {
+      const bucket = attachmentsByMessage.get(attachment.message_id) ?? []
+      bucket.push(attachment)
+      attachmentsByMessage.set(attachment.message_id, bucket)
+    }
 
     // 取最近的 MAX_CONTEXT_MESSAGES 条消息
     const contextSlice = allMessages.slice(-MAX_CONTEXT_MESSAGES)
 
     for (const msg of contextSlice) {
       if (msg.role === 'user' || msg.role === 'assistant') {
-        messages.push({ role: msg.role as 'user' | 'assistant', content: msg.content })
+        const messageAttachments = attachmentsByMessage.get(msg.id) ?? []
+        if (msg.role === 'user' && messageAttachments.length > 0) {
+          messages.push({
+            role: 'user',
+            content: [
+              { type: 'text', text: msg.content },
+              ...toAttachmentContentParts(messageAttachments, providerType),
+            ],
+          })
+        } else {
+          messages.push({ role: msg.role as 'user' | 'assistant', content: msg.content })
+        }
       }
     }
 
@@ -272,6 +329,15 @@ export class ChatService {
    * 转换为前端 VO
    */
   private toMessageVO(msg: any): ChatMessageVO {
+    const attachments = attachmentRepo.getByMessageId(msg.id).map((attachment) => ({
+      id: attachment.id,
+      kind: attachment.kind,
+      fileName: attachment.file_name,
+      mimeType: attachment.mime_type,
+      originalPath: attachment.original_path,
+      sizeBytes: attachment.size_bytes,
+    }))
+
     return {
       id: msg.id,
       conversationId: msg.conversation_id,
@@ -279,6 +345,7 @@ export class ChatService {
       role: msg.role,
       content: msg.content,
       contentType: msg.content_type,
+      attachments,
       sequenceNo: msg.sequence_no,
       isStreaming: msg.is_streaming ?? 0,
       createdAt: msg.created_at,

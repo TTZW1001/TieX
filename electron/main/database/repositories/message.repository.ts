@@ -67,6 +67,16 @@ export class MessageRepository {
     )
   }
 
+  updateTokenCount(id: string, tokenCount: number | null): void {
+    const db = getDatabase()
+    const now = new Date().toISOString()
+    db.prepare('UPDATE messages SET token_count = ?, updated_at = ? WHERE id = ?').run(
+      tokenCount,
+      now,
+      id
+    )
+  }
+
   setStreaming(id: string, isStreaming: number): void {
     const db = getDatabase()
     const now = new Date().toISOString()

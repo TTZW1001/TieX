@@ -3,12 +3,14 @@
  */
 import type { IModelProvider } from './model-provider'
 import { DeepSeekProvider } from './deepseek-provider'
+import { SiliconFlowProvider } from './siliconflow-provider'
 
 /** 已注册的 Provider 构造器 */
 const providerRegistry = new Map<string, () => IModelProvider>()
 
 // 注册内置 Provider
 providerRegistry.set('deepseek', () => new DeepSeekProvider())
+providerRegistry.set('siliconflow', () => new SiliconFlowProvider())
 
 /**
  * 根据 provider_type 获取 Provider 实例

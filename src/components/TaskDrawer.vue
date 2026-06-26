@@ -1,21 +1,38 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import MarkdownIt from 'markdown-it'
 import { useUiStore } from '@/stores/ui.store'
 import { useTaskStore } from '@/stores/task.store'
+import { useWorkspaceStore } from '@/stores/workspace.store'
 import { X, Loader2, CheckCircle2, XCircle, AlertCircle, RotateCcw, FileText } from 'lucide-vue-next'
 import DiffViewer from './DiffViewer.vue'
 import ArtifactCard from './ArtifactCard.vue'
 import CommandOutput from './CommandOutput.vue'
-import type { FileChangeInfo, ArtifactInfo, CommandSessionInfo } from '@/types/global'
+import FileTree from './FileTree.vue'
+import type { FileChangeInfo, ArtifactInfo, CommandSessionInfo, FileEntry } from '@/types/global'
 
 const uiStore = useUiStore()
 const taskStore = useTaskStore()
+const workspaceStore = useWorkspaceStore()
 
 const fileChanges = ref<FileChangeInfo[]>([])
 const loadingChanges = ref(false)
 const restoringId = ref<string | null>(null)
 const artifacts = ref<ArtifactInfo[]>([])
 const loadingArtifacts = ref(false)
+const selectedFile = ref<FileEntry | null>(null)
+const selectedFilePreview = ref('')
+const selectedFileSize = ref<number | null>(null)
+const selectedFileTruncated = ref(false)
+const loadingFilePreview = ref(false)
+const workspaceMemoryDraft = ref('')
+const savingWorkspaceMemory = ref(false)
+const rollingBack = ref(false)
+const md = new MarkdownIt({
+  html: false,
+  linkify: true,
+  typographer: true,
+})
 
 // 监听当前任务变化，加载文件变更和生成物
 watch(() => taskStore.currentTask?.id, async (taskId) => {
@@ -25,6 +42,18 @@ watch(() => taskStore.currentTask?.id, async (taskId) => {
     fileChanges.value = []
     artifacts.value = []
   }
+}, { immediate: true })
+
+watch(() => workspaceStore.currentWorkspaceId, () => {
+  selectedFile.value = null
+  selectedFilePreview.value = ''
+  selectedFileSize.value = null
+  selectedFileTruncated.value = false
+  workspaceMemoryDraft.value = workspaceStore.currentWorkspaceMemory
+})
+
+watch(() => workspaceStore.currentWorkspaceMemory, (value) => {
+  workspaceMemoryDraft.value = value
 }, { immediate: true })
 
 async function loadFileChanges(taskId: string) {
@@ -48,6 +77,30 @@ async function loadArtifacts(taskId: string) {
     artifacts.value = []
   } finally {
     loadingArtifacts.value = false
+  }
+}
+
+async function handleFileSelect(entry: FileEntry) {
+  selectedFile.value = entry
+  loadingFilePreview.value = true
+  selectedFilePreview.value = ''
+  selectedFileSize.value = null
+  selectedFileTruncated.value = false
+
+  try {
+    const result = await workspaceStore.readFile(entry.path, 0, 64 * 1024)
+    if (!result) {
+      selectedFilePreview.value = '无法读取该文件。'
+      return
+    }
+    selectedFilePreview.value = result.content
+    selectedFileSize.value = result.totalSize
+    selectedFileTruncated.value = result.isTruncated
+  } catch (err) {
+    console.error('Failed to preview file:', err)
+    selectedFilePreview.value = '文件预览加载失败。'
+  } finally {
+    loadingFilePreview.value = false
   }
 }
 
@@ -78,6 +131,30 @@ function formatTime(iso: string | null): string {
   if (!iso) return ''
   const d = new Date(iso)
   return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function stepTitle(step: { step_type: string; content: string | null }) {
+  if (step.step_type === 'agent_brief') {
+    if ((step.content ?? '').includes('[资料整理 Agent]') || (step.content ?? '').includes('资料整理 Agent')) return '资料整理 Agent 内部简报'
+    if ((step.content ?? '').includes('[规则记忆 Agent]') || (step.content ?? '').includes('规则记忆 Agent')) return '规则记忆 Agent 内部简报'
+    if ((step.content ?? '').includes('[主对话 Agent]') || (step.content ?? '').includes('主对话 Agent')) return '主对话 Agent 最终整理'
+    return '协作 Agent 内部简报'
+  }
+  if (step.step_type === 'implementation_result') {
+    return '代码实现 Agent 执行结论'
+  }
+  if (step.step_type === 'agent_route') {
+    return '主对话 Agent 调度决策'
+  }
+  return step.content
+}
+
+function canExpandStep(step: { step_type: string; content: string | null }) {
+  return step.step_type === 'agent_brief' || step.step_type === 'implementation_result' || (step.content?.length ?? 0) > 160
+}
+
+function renderMarkdown(content: string | null) {
+  return md.render(content ?? '')
 }
 
 /** 解析工具调用参数 */
@@ -132,6 +209,31 @@ async function stopCommand(sessionId: string) {
     console.error('Failed to stop command:', err)
   }
 }
+
+async function saveWorkspaceMemory() {
+  if (!workspaceStore.currentWorkspaceId) return
+  savingWorkspaceMemory.value = true
+  try {
+    await workspaceStore.saveWorkspaceMemory(workspaceMemoryDraft.value)
+  } finally {
+    savingWorkspaceMemory.value = false
+  }
+}
+
+async function rollbackCurrentTask() {
+  if (!taskStore.currentTask || rollingBack.value) return
+  rollingBack.value = true
+  try {
+    const result = await taskStore.rollbackTask(taskStore.currentTask.id)
+    alert(result.message || (result.success ? '任务已回滚' : '任务回滚失败'))
+    if (result.success && taskStore.currentTask?.id) {
+      await loadFileChanges(taskStore.currentTask.id)
+      await workspaceStore.loadFileTree()
+    }
+  } finally {
+    rollingBack.value = false
+  }
+}
 </script>
 
 <template>
@@ -154,9 +256,22 @@ async function stopCommand(sessionId: string) {
           <span class="meta-item">轮次: {{ taskStore.currentTask.roundCount }}</span>
           <span class="meta-item">工具: {{ taskStore.currentTask.toolCallCount }}</span>
         </div>
+        <div class="task-actions">
+          <button class="restore-btn" @click="rollbackCurrentTask" :disabled="rollingBack">
+            <RotateCcw :size="12" />
+            {{ rollingBack ? '回滚中...' : '一键回滚任务' }}
+          </button>
+        </div>
       </div>
 
       <div class="drawer-tabs">
+        <button
+          class="drawer-tab"
+          :class="{ active: uiStore.activeDrawerTab === 'workspace' }"
+          @click="uiStore.setDrawerTab('workspace')"
+        >
+          工作区
+        </button>
         <button
           class="drawer-tab"
           :class="{ active: uiStore.activeDrawerTab === 'steps' }"
@@ -195,12 +310,54 @@ async function stopCommand(sessionId: string) {
       </div>
       <div class="drawer-list">
         <!-- 空状态 -->
-        <div v-if="!taskStore.currentTask" class="empty-drawer">
+        <div v-if="!taskStore.currentTask && uiStore.activeDrawerTab !== 'workspace'" class="empty-drawer">
           <AlertCircle :size="32" />
           <div>暂无任务</div>
         </div>
 
-        <template v-else>
+        <template v-if="uiStore.activeDrawerTab === 'workspace'">
+          <div v-if="!workspaceStore.hasWorkspace" class="empty-tab">当前没有已绑定的工作区</div>
+          <template v-else>
+            <div class="workspace-panel">
+              <div class="workspace-panel-tree">
+                <FileTree @select="handleFileSelect" />
+              </div>
+              <div class="workspace-panel-preview">
+                <div class="workspace-memory-card">
+                  <div class="workspace-memory-head">
+                    <div class="workspace-memory-title">工作区记忆</div>
+                    <button class="restore-btn" @click="saveWorkspaceMemory" :disabled="savingWorkspaceMemory">
+                      {{ savingWorkspaceMemory ? '保存中...' : '保存记忆' }}
+                    </button>
+                  </div>
+                  <textarea
+                    v-model="workspaceMemoryDraft"
+                    class="workspace-memory-input"
+                    rows="4"
+                    placeholder="记录这个工作区的构建命令、代码风格、目录习惯或注意事项。"
+                  />
+                </div>
+                <div v-if="!selectedFile" class="empty-tab preview-empty">从左侧文件树选择一个文本文件</div>
+                <template v-else>
+                  <div class="preview-head">
+                    <div class="preview-title">{{ selectedFile.name }}</div>
+                    <div class="preview-meta">
+                      <span>{{ selectedFile.path }}</span>
+                      <span v-if="selectedFileSize !== null">{{ selectedFileSize }} B</span>
+                      <span v-if="selectedFileTruncated">已截断</span>
+                    </div>
+                  </div>
+                  <div v-if="loadingFilePreview" class="empty-tab preview-empty">
+                    <Loader2 :size="16" class="spin" style="vertical-align: -3px" /> 加载中...
+                  </div>
+                  <pre v-else class="preview-code">{{ selectedFilePreview }}</pre>
+                </template>
+              </div>
+            </div>
+          </template>
+        </template>
+
+        <template v-else-if="taskStore.currentTask">
           <!-- Steps tab -->
           <template v-if="uiStore.activeDrawerTab === 'steps'">
             <div
@@ -215,7 +372,14 @@ async function stopCommand(sessionId: string) {
                 <span v-else class="status-wait">●</span>
               </span>
               <div class="step-content">
-                <div class="step-title">{{ step.content }}</div>
+                <details v-if="canExpandStep(step)" class="step-details" :open="step.step_type === 'agent_brief'">
+                  <summary class="step-summary">
+                    <span class="step-title">{{ stepTitle(step) }}</span>
+                    <span class="step-expand-label">展开全文</span>
+                  </summary>
+                  <div class="step-full-content markdown-body" v-html="renderMarkdown(step.content)" />
+                </details>
+                <div v-else class="step-title">{{ stepTitle(step) }}</div>
                 <div class="step-sub">
                   <span class="step-type">{{ step.step_type }}</span>
                   <span v-if="step.started_at">{{ formatTime(step.started_at) }}</span>
@@ -399,6 +563,10 @@ async function stopCommand(sessionId: string) {
   flex-wrap: wrap;
 }
 
+.task-actions {
+  margin-top: 12px;
+}
+
 .task-status {
   padding: 2px 8px;
   border-radius: 6px;
@@ -465,6 +633,100 @@ async function stopCommand(sessionId: string) {
   flex: 1;
 }
 
+.workspace-memory-card {
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+}
+
+.workspace-memory-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.workspace-memory-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.workspace-memory-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 88px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  padding: 10px 12px;
+}
+
+.workspace-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.workspace-panel-tree,
+.workspace-panel-preview {
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel-2) 78%, transparent);
+  overflow: hidden;
+}
+
+.workspace-panel-tree {
+  min-height: 260px;
+}
+
+.workspace-panel-preview {
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+}
+
+.preview-head {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.preview-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.preview-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.preview-code {
+  margin: 0;
+  padding: 16px;
+  flex: 1;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: 'Consolas', 'Monaco', monospace;
+  color: var(--text);
+}
+
+.preview-empty {
+  min-height: 180px;
+}
+
 .empty-drawer {
   display: flex;
   flex-direction: column;
@@ -509,6 +771,48 @@ async function stopCommand(sessionId: string) {
 .step-title {
   font-size: 13px;
   word-break: break-word;
+}
+
+.step-details {
+  min-width: 0;
+}
+
+.step-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.step-summary::-webkit-details-marker {
+  display: none;
+}
+
+.step-expand-label {
+  font-size: 11px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.step-full-content {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--line-soft);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.step-full-content :deep(p) {
+  margin: 0 0 10px;
+}
+
+.step-full-content :deep(p:last-child) {
+  margin-bottom: 0;
 }
 
 .step-sub {

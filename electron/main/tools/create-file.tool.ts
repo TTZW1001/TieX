@@ -3,7 +3,7 @@
  */
 import type { AgentTool, ToolExecutionContext } from './agent-tool.types'
 import { pathGuard } from '../security/path-guard'
-import { backupService, atomicWriteFile, computeContentHash } from '../services/backup.service'
+import { backupService, atomicWriteFile, computeContentHash, isAutoBackupEnabled } from '../services/backup.service'
 import { FileChangeRepository } from '../database/repositories/file-change.repository'
 import { existsSync, statSync } from 'fs'
 import { dirname } from 'path'
@@ -92,8 +92,13 @@ export const createFileTool: AgentTool<CreateFileInput, CreateFileOutput> = {
     let beforeSize: number | null = null
 
     // 覆盖时创建备份
-    if (fileExists) {
+    if (fileExists && isAutoBackupEnabled()) {
       backupPath = backupService.createBackup(context.taskId, context.workspaceRoot, input.path)
+      beforeHash = computeContentHash(
+        require('fs').readFileSync(absolutePath, 'utf-8')
+      )
+      beforeSize = statSync(absolutePath).size
+    } else if (fileExists) {
       beforeHash = computeContentHash(
         require('fs').readFileSync(absolutePath, 'utf-8')
       )

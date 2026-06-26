@@ -23,10 +23,15 @@ const api = {
       ipcRenderer.invoke('settings:update', key, value),
   },
   provider: {
+    list: (): Promise<any[]> => ipcRenderer.invoke('provider:list'),
     getDefault: (): Promise<any> => ipcRenderer.invoke('provider:getDefault'),
     getById: (id: string): Promise<any> => ipcRenderer.invoke('provider:getById', id),
+    create: (data: Record<string, unknown>): Promise<any> =>
+      ipcRenderer.invoke('provider:create', data),
     update: (id: string, data: Record<string, unknown>): Promise<void> =>
       ipcRenderer.invoke('provider:update', id, data),
+    delete: (id: string): Promise<void> =>
+      ipcRenderer.invoke('provider:delete', id),
     testConnection: (id: string): Promise<{ success: boolean; message: string }> =>
       ipcRenderer.invoke('provider:testConnection', id),
     testDraft: (data: Record<string, unknown>): Promise<{ success: boolean; message: string }> =>
@@ -40,12 +45,16 @@ const api = {
     getById: (id: string): Promise<any> => ipcRenderer.invoke('conversation:getById', id),
     updateTitle: (id: string, title: string): Promise<void> =>
       ipcRenderer.invoke('conversation:updateTitle', id, title),
+    updateProvider: (id: string, providerId: string | null): Promise<void> =>
+      ipcRenderer.invoke('conversation:updateProvider', id, providerId),
+    branchFromMessage: (conversationId: string, messageId: string): Promise<any> =>
+      ipcRenderer.invoke('conversation:branchFromMessage', conversationId, messageId),
     delete: (id: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('conversation:delete', id),
   },
   chat: {
-    send: (conversationId: string, content: string): Promise<any> =>
-      ipcRenderer.invoke('chat:send', conversationId, content),
+    send: (conversationId: string, content: string, attachments?: Array<Record<string, unknown>>): Promise<any> =>
+      ipcRenderer.invoke('chat:send', conversationId, content, attachments),
     stop: (conversationId: string): Promise<void> =>
       ipcRenderer.invoke('chat:stop', conversationId),
     getMessages: (conversationId: string): Promise<any[]> =>
@@ -81,6 +90,21 @@ const api = {
       ipcRenderer.invoke('workspace:checkAvailable', id),
     switch: (id: string): Promise<any> => ipcRenderer.invoke('workspace:switch', id),
   },
+  memory: {
+    getGlobal: (): Promise<string> => ipcRenderer.invoke('memory:getGlobal'),
+    setGlobal: (content: string): Promise<void> => ipcRenderer.invoke('memory:setGlobal', content),
+    getWorkspace: (workspaceId: string): Promise<any> => ipcRenderer.invoke('memory:getWorkspace', workspaceId),
+    setWorkspace: (workspaceId: string, content: string): Promise<any> =>
+      ipcRenderer.invoke('memory:setWorkspace', workspaceId, content),
+    getCandidates: (status?: 'pending' | 'approved' | 'rejected'): Promise<any[]> =>
+      ipcRenderer.invoke('memory:getCandidates', status),
+    approveCandidate: (candidateId: string): Promise<void> =>
+      ipcRenderer.invoke('memory:approveCandidate', candidateId),
+    rejectCandidate: (candidateId: string): Promise<void> =>
+      ipcRenderer.invoke('memory:rejectCandidate', candidateId),
+    getConversationSummary: (conversationId: string): Promise<any> =>
+      ipcRenderer.invoke('memory:getConversationSummary', conversationId),
+  },
   file: {
     list: (workspaceId: string, input: Record<string, unknown>): Promise<any> =>
       ipcRenderer.invoke('file:list', workspaceId, input),
@@ -93,6 +117,7 @@ const api = {
     start: (request: {
       conversationId: string
       content: string
+      attachments?: Array<Record<string, unknown>>
       workspaceId?: string | null
       title?: string | null
     }): Promise<{ taskId: string }> => ipcRenderer.invoke('task:start', request),
@@ -106,6 +131,8 @@ const api = {
     getToolCalls: (taskId: string): Promise<any[]> =>
       ipcRenderer.invoke('task:getToolCalls', taskId),
     getLogs: (taskId: string): Promise<any[]> => ipcRenderer.invoke('task:getLogs', taskId),
+    rollback: (taskId: string): Promise<{ success: boolean; restoredCount: number; message?: string }> =>
+      ipcRenderer.invoke('task:rollback', taskId),
     onEvent: (callback: (event: any) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data)
       ipcRenderer.on('task:event', handler)
@@ -161,6 +188,11 @@ const api = {
      */
     showInFolder: (filePath: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('shell:showInFolder', filePath),
+  },
+  stats: {
+    getOverview: (): Promise<any> => ipcRenderer.invoke('stats:getOverview'),
+    getConversationDetail: (conversationId: string): Promise<any> =>
+      ipcRenderer.invoke('stats:getConversationDetail', conversationId),
   },
 }
 

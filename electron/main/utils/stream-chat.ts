@@ -2,7 +2,7 @@
  * 流式聊天工具函数
  * 抽取 ChatService 和 Agent Runtime 共享的流式处理逻辑
  */
-import type { ModelRequest, ModelStreamEvent, ProviderConfig } from '../providers/model-provider'
+import type { ModelRequest, TokenUsage } from '../providers/model-provider'
 import type { IModelProvider } from '../providers/model-provider'
 import { getProvider } from '../providers/provider-factory'
 
@@ -13,7 +13,7 @@ export interface StreamCallbacks {
   /** 收到工具调用 delta */
   onToolCallDelta?: (delta: any) => void
   /** 流式完成 */
-  onDone?: () => void
+  onDone?: (usage?: TokenUsage) => void
   /** 流式错误 */
   onError?: (code: string, message: string) => void
 }
@@ -31,6 +31,7 @@ export async function streamChatWithCallbacks(
   const provider: IModelProvider = getProvider(config?.providerType ?? 'deepseek')
 
   let fullContent = ''
+  let lastUsage: TokenUsage | undefined
 
   try {
     for await (const streamEvent of provider.streamChat(modelRequest, signal)) {
@@ -42,9 +43,10 @@ export async function streamChatWithCallbacks(
       } else if (streamEvent.type === 'tool_call_delta') {
         callbacks.onToolCallDelta?.(streamEvent.delta)
       } else if (streamEvent.type === 'finish') {
-        // finish 事件无需特殊处理
+        lastUsage = streamEvent.usage ?? lastUsage
       } else if (streamEvent.type === 'done') {
-        callbacks.onDone?.()
+        lastUsage = streamEvent.usage ?? lastUsage
+        callbacks.onDone?.(lastUsage)
         break
       } else if (streamEvent.type === 'error') {
         callbacks.onError?.(streamEvent.error.code, streamEvent.error.message)

@@ -15,8 +15,17 @@ import {
   type CommandOutput,
 } from './command-runner'
 import { OperationLogRepository } from '../database/repositories/operation-log.repository'
+import { SettingsRepository } from '../database/repositories/settings.repository'
 
 const operationLogRepo = new OperationLogRepository()
+const settingsRepo = new SettingsRepository()
+
+function getDefaultCommandTimeoutMs(): number {
+  const raw = settingsRepo.get('default_command_timeout_ms')
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  if (!Number.isFinite(parsed)) return 60000
+  return Math.min(300000, Math.max(5000, parsed))
+}
 
 export interface ExecuteCommandInput {
   command: string
@@ -81,7 +90,7 @@ class CommandServiceImpl {
       command,
       args,
       cwd,
-      timeoutMs: input.timeoutMs ?? 60000,
+      timeoutMs: input.timeoutMs ?? getDefaultCommandTimeoutMs(),
       maxOutputChars: input.maxOutputChars ?? 51200,
       taskId,
     }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, nextTick, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { FolderOpen } from 'lucide-vue-next'
 import { useChatStore } from '@/stores/chat.store'
 import { useConversationStore } from '@/stores/conversation.store'
@@ -19,6 +19,7 @@ const conversationStore = useConversationStore()
 const workspaceStore = useWorkspaceStore()
 const taskStore = useTaskStore()
 const route = useRoute()
+const router = useRouter()
 const messagesContainer = ref<HTMLElement | null>(null)
 const loadingMore = ref(false)
 
@@ -52,6 +53,71 @@ const activityMeta = computed(() => {
     label: '已就绪',
     tone: 'idle',
   }
+})
+
+const agentEntries = computed<ActivityEntry[]>(() => {
+  const collaborators = taskStore.steps
+    .filter((step) => step.step_type === 'agent_brief')
+    .map((step) => {
+      const content = step.content?.trim() || ''
+      const title = content.includes('[资料整理 Agent]') || content.includes('资料整理 Agent')
+        ? '资料整理 Agent'
+        : content.includes('[规则记忆 Agent]') || content.includes('规则记忆 Agent')
+          ? '规则记忆 Agent'
+          : content.includes('[主对话 Agent]') || content.includes('主对话 Agent')
+            ? '主对话 Agent'
+            : '协作 Agent'
+      const status =
+        step.status === 'completed'
+          ? 'completed'
+          : step.status === 'failed'
+            ? 'failed'
+            : 'running'
+
+      return {
+        id: `agent-${step.id}`,
+        kind: 'agent' as const,
+        createdAt: step.created_at,
+        title,
+        status: status as 'running' | 'completed' | 'failed',
+        detail: content || undefined,
+      }
+    })
+
+  const currentTask = taskStore.currentTask
+  if (!currentTask) {
+    return collaborators
+  }
+
+  const hasImplementationWork =
+    taskStore.toolCalls.length > 0 ||
+    taskStore.steps.some((step) => step.step_type === 'implementation_result' || step.step_type === 'model_request')
+
+  if (!hasImplementationWork) {
+    return collaborators
+  }
+
+  const implementationStatus =
+    currentTask.status === 'completed'
+      ? 'completed'
+      : currentTask.status === 'failed' || currentTask.status === 'stopped'
+        ? 'failed'
+        : 'running'
+
+  return [
+    ...collaborators,
+    {
+      id: `agent-implementation-${currentTask.id}`,
+      kind: 'agent' as const,
+      createdAt: currentTask.createdAt,
+      title: '代码实现 Agent',
+      status: implementationStatus as 'running' | 'completed' | 'failed',
+      detail:
+        implementationStatus === 'running'
+          ? '负责实际调用工具、读取工作区并产出执行结论，供主对话 Agent 整理。'
+          : currentTask.errorMessage || '负责实际调用工具、读取工作区并产出执行结论，供主对话 Agent 整理。',
+    },
+  ]
 })
 
 const activityEntries = computed<ActivityEntry[]>(() => {
@@ -90,6 +156,10 @@ const activityEntries = computed<ActivityEntry[]>(() => {
     })
   }
 
+  for (const agent of agentEntries.value) {
+    list.push(agent)
+  }
+
   for (const toolCall of taskStore.toolCalls) {
     const status = taskStore.toolCallStatus.get(toolCall.id)?.status || toolCall.status
     list.push({
@@ -125,6 +195,14 @@ const activityEntries = computed<ActivityEntry[]>(() => {
   }
 
   return list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+})
+
+const agentBadges = computed(() => {
+  return agentEntries.value.map((entry) => ({
+    id: entry.id,
+    label: entry.title.replace(' Agent', ''),
+    status: entry.status as 'running' | 'completed' | 'failed',
+  }))
 })
 
 const currentTaskAssistantMessages = computed(() => {
@@ -266,6 +344,19 @@ onMounted(() => {
     workspaceStore.loadWorkspaces()
   }
 })
+
+async function branchFromMessage(message: ChatMessage) {
+  const conversationId = conversationStore.currentConversationId
+  if (!conversationId) return
+  try {
+    const branch = await window.tiex.conversation.branchFromMessage(conversationId, message.id)
+    await conversationStore.loadConversations()
+    conversationStore.setCurrentConversation(branch.id)
+    await router.push(`/conversation/${branch.id}`)
+  } catch (err) {
+    console.error('Failed to branch conversation:', err)
+  }
+}
 </script>
 
 <template>
@@ -279,6 +370,14 @@ onMounted(() => {
         <div class="session-pill workspace-tag">
           <FolderOpen :size="12" />
           <span>{{ workspaceStore.currentWorkspaceName }}</span>
+        </div>
+        <div
+          v-for="badge in agentBadges"
+          :key="badge.id"
+          class="session-pill agent-pill"
+          :class="badge.status"
+        >
+          <span>{{ badge.label }}</span>
         </div>
       </div>
 
@@ -301,12 +400,14 @@ onMounted(() => {
           <MessageItem
             v-if="item.type === 'message'"
             :message="item.message"
+            @branch="branchFromMessage"
           />
           <TaskMessageBlock
             v-else
             :process-items="item.processItems"
             :summary-message="item.summaryMessage"
             :running="item.running"
+            :agent-badges="agentBadges"
           />
         </template>
 
@@ -369,6 +470,24 @@ onMounted(() => {
 
 .workspace-tag {
   margin-left: auto;
+}
+
+.agent-pill.running {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.agent-pill.completed {
+  color: var(--success-strong);
+  border-color: color-mix(in srgb, var(--success) 28%, var(--line));
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+
+.agent-pill.failed {
+  color: var(--danger-strong);
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 .messages {

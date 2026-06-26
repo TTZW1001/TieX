@@ -2,6 +2,7 @@
  * Task Limits - 任务限制管理
  */
 import type { TaskLimits as TaskLimitsConfig } from './agent-runtime'
+import { SettingsRepository } from '../database/repositories/settings.repository'
 
 /** 默认任务限制 */
 export const DEFAULT_TASK_LIMITS: TaskLimitsConfig = {
@@ -13,6 +14,24 @@ export const DEFAULT_TASK_LIMITS: TaskLimitsConfig = {
   maxFileSizeBytes: 2 * 1024 * 1024, // 2MB
   maxChangedFiles: 20, // 阶段六使用
   maxToolOutputChars: 50000,
+}
+
+function readPositiveInteger(key: string, fallback: number): number {
+  try {
+    const settingsRepo = new SettingsRepository()
+    const raw = settingsRepo.get(key)
+    const value = raw ? Number.parseInt(raw, 10) : Number.NaN
+    return Number.isFinite(value) && value > 0 ? value : fallback
+  } catch {
+    return fallback
+  }
+}
+
+export function loadTaskLimitsFromSettings(): TaskLimitsConfig {
+  return {
+    ...DEFAULT_TASK_LIMITS,
+    maxModelRounds: readPositiveInteger('max_task_steps', DEFAULT_TASK_LIMITS.maxModelRounds),
+  }
 }
 
 /** 任务限制超出的错误 */

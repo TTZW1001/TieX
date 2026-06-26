@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join, dirname } from 'path'
 import { existsSync, mkdirSync } from 'fs'
+import { AGENT_PROFILES, MULTI_AGENT_ENABLED_KEY } from '../agent/agent-profiles'
 
 let db: Database.Database | null = null
 
@@ -10,10 +11,20 @@ const DEFAULT_SETTINGS: Array<{ key: string; value: string; valueType: string }>
   { key: 'sidebar_collapsed', value: 'false', valueType: 'boolean' },
   { key: 'default_permission_mode', value: 'read', valueType: 'string' },
   { key: 'max_task_steps', value: '20', valueType: 'number' },
+  { key: 'default_command_timeout_ms', value: '60000', valueType: 'number' },
   { key: 'auto_backup', value: 'true', valueType: 'boolean' },
   { key: 'confirm_before_modify', value: 'true', valueType: 'boolean' },
   { key: 'confirm_before_command', value: 'true', valueType: 'boolean' },
   { key: 'allow_outside_workspace', value: 'false', valueType: 'boolean' },
+  { key: 'global_memory', value: '', valueType: 'string' },
+  { key: 'custom_system_prompt', value: '', valueType: 'string' },
+  { key: 'user_display_name', value: '', valueType: 'string' },
+  { key: 'user_preferences', value: '', valueType: 'string' },
+  { key: MULTI_AGENT_ENABLED_KEY, value: 'true', valueType: 'boolean' },
+  ...AGENT_PROFILES.flatMap((profile) => ([
+    { key: profile.providerKey, value: '', valueType: 'string' },
+    { key: profile.promptKey, value: profile.defaultPrompt, valueType: 'string' },
+  ])),
 ]
 
 const DEFAULT_PROVIDER = {
@@ -22,6 +33,15 @@ const DEFAULT_PROVIDER = {
   providerType: 'deepseek',
   baseUrl: 'https://api.deepseek.com',
   modelName: 'deepseek-v4-flash',
+  timeoutMs: 60000,
+}
+
+const SILICONFLOW_PROVIDER = {
+  id: 'preset-siliconflow-qwen3-vl',
+  name: 'SiliconFlow · Qwen3-VL',
+  providerType: 'siliconflow',
+  baseUrl: 'https://api.siliconflow.cn/v1',
+  modelName: 'Qwen/Qwen3-VL-8B-Thinking',
   timeoutMs: 60000,
 }
 
@@ -265,6 +285,7 @@ INSERT OR IGNORE INTO app_settings (key, value, value_type, updated_at) VALUES
   ('sidebar_collapsed', 'false', 'boolean', datetime('now')),
   ('default_permission_mode', 'read', 'string', datetime('now')),
   ('max_task_steps', '20', 'number', datetime('now')),
+  ('default_command_timeout_ms', '60000', 'number', datetime('now')),
   ('auto_backup', 'true', 'boolean', datetime('now')),
   ('confirm_before_modify', 'true', 'boolean', datetime('now')),
   ('confirm_before_command', 'true', 'boolean', datetime('now')),
@@ -488,6 +509,64 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts(task_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type);
 CREATE INDEX IF NOT EXISTS idx_artifacts_status ON artifacts(status);
 `,
+  '007_add_branching_attachments_and_memory': `
+ALTER TABLE conversations ADD COLUMN parent_conversation_id TEXT;
+ALTER TABLE conversations ADD COLUMN branch_from_message_id TEXT;
+
+CREATE TABLE IF NOT EXISTS message_attachments (
+  id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  mime_type TEXT,
+  original_path TEXT NOT NULL,
+  size_bytes INTEGER,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_attachments_message ON message_attachments(message_id);
+CREATE INDEX IF NOT EXISTS idx_message_attachments_conversation ON message_attachments(conversation_id);
+
+CREATE TABLE IF NOT EXISTS workspace_memories (
+  workspace_id TEXT PRIMARY KEY,
+  content TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+`,
+  '008_add_memory_candidates_and_preferences': `
+CREATE TABLE IF NOT EXISTS memory_candidates (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  category TEXT NOT NULL,
+  candidate_text TEXT NOT NULL,
+  source_message_id TEXT,
+  workspace_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  decided_at TEXT,
+  FOREIGN KEY (source_message_id) REFERENCES messages(id) ON DELETE SET NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_candidates_status ON memory_candidates(status);
+CREATE INDEX IF NOT EXISTS idx_memory_candidates_scope ON memory_candidates(scope);
+`,
+  '009_add_conversation_summaries': `
+CREATE TABLE IF NOT EXISTS conversation_summaries (
+  conversation_id TEXT PRIMARY KEY,
+  summary TEXT NOT NULL DEFAULT '',
+  message_count INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_role_created ON messages(role, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_token_count ON messages(token_count);
+`,
 }
 
 function runMigrations(database: Database.Database): void {
@@ -566,6 +645,28 @@ function ensureSeedData(database: Database.Database): void {
     database.prepare(
       'UPDATE model_providers SET model_name = ?, updated_at = ? WHERE id = ?'
     ).run(DEFAULT_PROVIDER.modelName, now, DEFAULT_PROVIDER.id)
+  }
+
+  const siliconflowProvider = database
+    .prepare('SELECT id FROM model_providers WHERE id = ?')
+    .get(SILICONFLOW_PROVIDER.id) as { id: string } | undefined
+
+  if (!siliconflowProvider) {
+    database.prepare(
+      `INSERT INTO model_providers (
+        id, name, provider_type, base_url, model_name, encrypted_api_key, timeout_ms,
+        stream_enabled, is_default, is_enabled, is_deleted, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, NULL, ?, 1, 0, 1, 0, ?, ?)`
+    ).run(
+      SILICONFLOW_PROVIDER.id,
+      SILICONFLOW_PROVIDER.name,
+      SILICONFLOW_PROVIDER.providerType,
+      SILICONFLOW_PROVIDER.baseUrl,
+      SILICONFLOW_PROVIDER.modelName,
+      SILICONFLOW_PROVIDER.timeoutMs,
+      now,
+      now,
+    )
   }
 
   if (providerCount === 0) {

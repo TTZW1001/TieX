@@ -1,6 +1,11 @@
 import { getDatabase } from '../database'
 import type { Conversation, CreateConversationInput } from '../../../shared/types'
 import { randomUUID } from 'crypto'
+import { MessageRepository } from './message.repository'
+import { MessageAttachmentRepository } from './message-attachment.repository'
+
+const messageRepo = new MessageRepository()
+const attachmentRepo = new MessageAttachmentRepository()
 
 export class ConversationRepository {
   create(data: CreateConversationInput): Conversation {
@@ -10,17 +15,49 @@ export class ConversationRepository {
     const title = data.title ?? '新对话'
     const permissionMode = data.permission_mode ?? 'chat'
     const status = 'active'
+    const columns = db.prepare(`PRAGMA table_info(conversations)`).all() as Array<{ name: string }>
+    const columnNames = new Set(columns.map((column) => column.name))
+    const insertColumns = [
+      'id',
+      'title',
+      'provider_id',
+      'workspace_id',
+      ...(columnNames.has('parent_conversation_id') ? ['parent_conversation_id'] : []),
+      ...(columnNames.has('branch_from_message_id') ? ['branch_from_message_id'] : []),
+      'permission_mode',
+      'status',
+      'is_pinned',
+      'last_message_at',
+      'created_at',
+      'updated_at',
+    ]
+    const placeholders = insertColumns.map(() => '?').join(', ')
+    const values = [
+      id,
+      title,
+      data.provider_id ?? null,
+      data.workspace_id ?? null,
+      ...(columnNames.has('parent_conversation_id') ? [data.parent_conversation_id ?? null] : []),
+      ...(columnNames.has('branch_from_message_id') ? [data.branch_from_message_id ?? null] : []),
+      permissionMode,
+      status,
+      0,
+      null,
+      now,
+      now,
+    ]
 
     db.prepare(
-      `INSERT INTO conversations (id, title, provider_id, workspace_id, permission_mode, status, is_pinned, last_message_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)`
-    ).run(id, title, data.provider_id ?? null, data.workspace_id ?? null, permissionMode, status, now, now)
+      `INSERT INTO conversations (${insertColumns.join(', ')}) VALUES (${placeholders})`
+    ).run(...values)
 
     return {
       id,
       title,
       provider_id: data.provider_id ?? null,
       workspace_id: data.workspace_id ?? null,
+      parent_conversation_id: data.parent_conversation_id ?? null,
+      branch_from_message_id: data.branch_from_message_id ?? null,
       permission_mode: permissionMode,
       status,
       is_pinned: 0,
@@ -55,6 +92,59 @@ export class ConversationRepository {
       now,
       id
     )
+  }
+
+  updateProvider(id: string, providerId: string | null): void {
+    const db = getDatabase()
+    const now = new Date().toISOString()
+    db.prepare('UPDATE conversations SET provider_id = ?, updated_at = ? WHERE id = ?').run(
+      providerId,
+      now,
+      id,
+    )
+  }
+
+  branchFromMessage(conversationId: string, messageId: string): Conversation {
+    const conversation = this.getById(conversationId)
+    if (!conversation) {
+      throw new Error('原会话不存在')
+    }
+
+    const sourceMessages = messageRepo.getByConversationId(conversationId)
+    const targetMessage = sourceMessages.find((message) => message.id === messageId)
+    if (!targetMessage) {
+      throw new Error('分支起点消息不存在')
+    }
+
+    const branchTitle = conversation.title === '新对话'
+      ? '分支对话'
+      : `${conversation.title} · 分支`
+
+    const branch = this.create({
+      title: branchTitle,
+      provider_id: conversation.provider_id ?? undefined,
+      workspace_id: conversation.workspace_id ?? undefined,
+      permission_mode: conversation.permission_mode,
+      parent_conversation_id: conversation.id,
+      branch_from_message_id: messageId,
+    })
+
+    const messagesToCopy = sourceMessages.filter((message) => message.sequence_no <= targetMessage.sequence_no)
+    for (const source of messagesToCopy) {
+      const copied = messageRepo.create({
+        conversation_id: branch.id,
+        task_id: null,
+        role: source.role,
+        content: source.content,
+        content_type: source.content_type,
+        tool_call_id: source.tool_call_id ?? undefined,
+        sequence_no: source.sequence_no,
+        token_count: source.token_count ?? undefined,
+      })
+      attachmentRepo.cloneForMessage(source.id, copied.id, branch.id)
+    }
+
+    return branch
   }
 
   deleteById(id: string): void {

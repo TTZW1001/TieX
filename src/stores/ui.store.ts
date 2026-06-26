@@ -28,7 +28,7 @@ export const useUiStore = defineStore('ui', () => {
   const drawerOpen = ref(false)
   const permissionDialogOpen = ref(false)
   const composerDraft = ref('')
-  const activeDrawerTab = ref<'steps' | 'files' | 'logs' | 'changes' | 'artifacts'>('steps')
+  const activeDrawerTab = ref<'steps' | 'files' | 'logs' | 'changes' | 'artifacts' | 'workspace'>('steps')
   const currentPermissionRequest = ref<PermissionRequestData | null>(null)
   const currentConfirmRequest = ref<ConfirmRequestData | null>(null)
   let confirmResolver: ConfirmResolver | null = null
@@ -87,7 +87,7 @@ export const useUiStore = defineStore('ui', () => {
     composerDraft.value = ''
   }
 
-  function setDrawerTab(tab: 'steps' | 'files' | 'logs' | 'changes' | 'artifacts') {
+  function setDrawerTab(tab: 'steps' | 'files' | 'logs' | 'changes' | 'artifacts' | 'workspace') {
     activeDrawerTab.value = tab
   }
 

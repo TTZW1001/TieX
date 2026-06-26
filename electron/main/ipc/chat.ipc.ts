@@ -13,14 +13,29 @@ const chatService = new ChatService()
 export function registerChatIpc(): void {
   ipcMain.handle(
     IPC_CHAT_SEND,
-    async (event, conversationId: string, content: string) => {
+    async (event, conversationId: string, content: string, attachments?: Array<Record<string, unknown>>) => {
       if (!conversationId || typeof conversationId !== 'string') {
         throw new Error('conversationId 不能为空')
       }
       if (!content || typeof content !== 'string' || !content.trim()) {
         throw new Error('消息内容不能为空')
       }
-      return chatService.sendMessage(event, conversationId, content)
+      return chatService.sendMessage(
+        event,
+        conversationId,
+        content,
+        Array.isArray(attachments)
+          ? attachments
+              .filter((item) => item && typeof item === 'object')
+              .map((item) => ({
+                path: typeof item.path === 'string' ? item.path : '',
+                name: typeof item.name === 'string' ? item.name : '',
+                mimeType: typeof item.mimeType === 'string' ? item.mimeType : null,
+                size: typeof item.size === 'number' ? item.size : null,
+              }))
+              .filter((item) => item.path && item.name)
+          : []
+      )
     }
   )
 

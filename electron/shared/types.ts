@@ -21,6 +21,8 @@ export interface Conversation {
   title: string
   provider_id: string | null
   workspace_id: string | null
+  parent_conversation_id?: string | null
+  branch_from_message_id?: string | null
   permission_mode: string
   status: string
   is_pinned: number
@@ -44,10 +46,24 @@ export interface Message {
   updated_at: string
 }
 
+export interface MessageAttachment {
+  id: string
+  message_id: string
+  conversation_id: string
+  kind: 'image' | 'file'
+  file_name: string
+  mime_type: string | null
+  original_path: string
+  size_bytes: number | null
+  created_at: string
+}
+
 export interface CreateConversationInput {
   title?: string
   provider_id?: string
   workspace_id?: string
+  parent_conversation_id?: string | null
+  branch_from_message_id?: string | null
   permission_mode?: string
 }
 
@@ -60,6 +76,16 @@ export interface CreateMessageInput {
   tool_call_id?: string
   sequence_no: number
   token_count?: number
+}
+
+export interface CreateMessageAttachmentInput {
+  message_id: string
+  conversation_id: string
+  kind: 'image' | 'file'
+  file_name: string
+  mime_type?: string | null
+  original_path: string
+  size_bytes?: number | null
 }
 
 export interface AppSetting {
@@ -78,14 +104,32 @@ export interface ChatMessageVO {
   role: string
   content: string
   contentType: string
+  attachments?: MessageAttachmentVO[]
   sequenceNo: number
   isStreaming: number
   createdAt: string
 }
 
+export interface MessageAttachmentVO {
+  id: string
+  kind: 'image' | 'file'
+  fileName: string
+  mimeType: string | null
+  originalPath: string
+  sizeBytes: number | null
+}
+
+export interface AttachmentInput {
+  path: string
+  name: string
+  mimeType?: string | null
+  size?: number | null
+}
+
 export interface ChatSendInput {
   conversationId: string
   content: string
+  attachments?: AttachmentInput[]
 }
 
 export interface ChatDeltaEvent {
@@ -384,8 +428,85 @@ export interface TaskDetail extends TaskInfo {
 export interface CreateTaskRequest {
   conversationId: string
   content: string
+  attachments?: AttachmentInput[]
   workspaceId?: string | null
   title?: string | null
+}
+
+export interface WorkspaceMemory {
+  workspace_id: string
+  content: string
+  updated_at: string
+}
+
+export interface MemoryCandidate {
+  id: string
+  scope: 'global' | 'workspace'
+  category: 'preference' | 'identity' | 'workspace_rule'
+  candidate_text: string
+  source_message_id: string | null
+  workspace_id: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+  decided_at: string | null
+}
+
+export interface ConversationSummary {
+  conversation_id: string
+  summary: string
+  message_count: number
+  updated_at: string
+}
+
+export type AgentRole = 'responder' | 'implementation' | 'research' | 'memory'
+
+export interface TokenPoint {
+  bucket: string
+  tokens: number
+}
+
+export interface ModelUsageShare {
+  provider_id: string | null
+  provider_name: string
+  model_name: string
+  tokens: number
+  message_count: number
+  percentage: number
+}
+
+export interface ConversationDetailStats {
+  conversation_id: string
+  title: string
+  workspace_id: string | null
+  workspace_name: string | null
+  message_count: number
+  task_count: number
+  total_tokens: number
+  first_message_at: string | null
+  last_message_at: string | null
+  summary: string
+  model_usage: ModelUsageShare[]
+  token_series: {
+    hour: TokenPoint[]
+    day: TokenPoint[]
+    week: TokenPoint[]
+    month: TokenPoint[]
+  }
+}
+
+export interface StatsOverview {
+  workspace_count: number
+  conversation_count: number
+  total_tokens: number
+  assistant_message_count: number
+  active_provider_count: number
+  model_usage: ModelUsageShare[]
+  token_series: {
+    hour: TokenPoint[]
+    day: TokenPoint[]
+    week: TokenPoint[]
+    month: TokenPoint[]
+  }
 }
 
 /** 任务事件（主进程→渲染进程） */

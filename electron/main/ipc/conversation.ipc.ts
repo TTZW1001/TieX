@@ -4,6 +4,8 @@ import {
   IPC_CONVERSATION_GET_RECENT,
   IPC_CONVERSATION_GET_BY_ID,
   IPC_CONVERSATION_UPDATE_TITLE,
+  IPC_CONVERSATION_UPDATE_PROVIDER,
+  IPC_CONVERSATION_BRANCH_FROM_MESSAGE,
   IPC_CONVERSATION_DELETE,
 } from '../../shared/ipc'
 import { ConversationRepository } from '../database/repositories/conversation.repository'
@@ -52,6 +54,26 @@ export function registerConversationIpc(): void {
         console.error('[conversation:updateTitle] failed:', err)
         throw err
       }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CONVERSATION_UPDATE_PROVIDER,
+    async (_event, id: string, providerId: string | null) => {
+      if (!id || typeof id !== 'string') {
+        throw new Error('Invalid conversation id')
+      }
+      conversationRepo.updateProvider(id, providerId)
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CONVERSATION_BRANCH_FROM_MESSAGE,
+    async (_event, conversationId: string, messageId: string) => {
+      if (!conversationId || !messageId) {
+        throw new Error('conversationId 和 messageId 不能为空')
+      }
+      return conversationRepo.branchFromMessage(conversationId, messageId)
     }
   )
 

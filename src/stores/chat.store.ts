@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import type { AttachmentInput, MessageAttachmentInfo } from '@/types/global'
 
 export interface ChatMessage {
   id: string
@@ -7,6 +8,7 @@ export interface ChatMessage {
   role: string
   content: string
   contentType: string
+  attachments?: MessageAttachmentInfo[]
   sequenceNo: number
   isStreaming: number
   createdAt: string
@@ -53,6 +55,7 @@ export const useChatStore = defineStore('chat', () => {
           role: 'assistant',
           content: data.content,
           contentType: 'markdown',
+          attachments: [],
           sequenceNo: messages.value.length,
           isStreaming: 1,
           createdAt: new Date().toISOString(),
@@ -112,6 +115,7 @@ export const useChatStore = defineStore('chat', () => {
             role: 'assistant',
             content: event.content,
             contentType: 'markdown',
+            attachments: [],
             sequenceNo: messages.value.length,
             isStreaming: 1,
             createdAt: new Date().toISOString(),
@@ -182,6 +186,7 @@ export const useChatStore = defineStore('chat', () => {
         role: m.role,
         content: m.content,
         contentType: m.contentType,
+        attachments: m.attachments ?? [],
         sequenceNo: m.sequenceNo,
         isStreaming: m.isStreaming,
         createdAt: m.createdAt,
@@ -234,6 +239,7 @@ export const useChatStore = defineStore('chat', () => {
         role: m.role,
         content: m.content,
         contentType: m.contentType,
+        attachments: m.attachments ?? [],
         sequenceNo: m.sequenceNo,
         isStreaming: m.isStreaming,
         createdAt: m.createdAt,
@@ -250,7 +256,7 @@ export const useChatStore = defineStore('chat', () => {
   /**
    * 普通聊天模式发送消息（阶段四保留）
    */
-  async function sendMessage(conversationId: string, content: string) {
+  async function sendMessage(conversationId: string, content: string, attachments: AttachmentInput[] = []) {
     if (!window.tiex) return
     if (isStreaming.value) return
 
@@ -262,7 +268,7 @@ export const useChatStore = defineStore('chat', () => {
 
     try {
       // 先在前端添加用户消息
-      const userMessage = await window.tiex.chat.send(conversationId, content)
+      const userMessage = await window.tiex.chat.send(conversationId, content, attachments)
       messages.value.push({
         id: userMessage.id,
         conversationId: userMessage.conversationId,
@@ -270,6 +276,7 @@ export const useChatStore = defineStore('chat', () => {
         role: userMessage.role,
         content: userMessage.content,
         contentType: userMessage.contentType,
+        attachments: userMessage.attachments ?? [],
         sequenceNo: userMessage.sequenceNo,
         isStreaming: 0,
         createdAt: userMessage.createdAt,
@@ -290,7 +297,7 @@ export const useChatStore = defineStore('chat', () => {
   async function sendAgentMessage(
     conversationId: string,
     content: string,
-    options?: { workspaceId?: string | null }
+    options?: { workspaceId?: string | null; attachments?: AttachmentInput[] }
   ) {
     if (!window.tiex) return
     if (isStreaming.value) return
@@ -306,6 +313,7 @@ export const useChatStore = defineStore('chat', () => {
       const result = await window.tiex.task.start({
         conversationId,
         content,
+        attachments: options?.attachments ?? [],
         workspaceId: options?.workspaceId ?? null,
       })
 
@@ -319,6 +327,14 @@ export const useChatStore = defineStore('chat', () => {
         role: 'user',
         content,
         contentType: 'text',
+        attachments: options?.attachments?.map((attachment, index) => ({
+          id: `temp-attachment-${index}`,
+          kind: attachment.mimeType?.startsWith('image/') ? 'image' : 'file',
+          fileName: attachment.name,
+          mimeType: attachment.mimeType ?? null,
+          originalPath: attachment.path,
+          sizeBytes: attachment.size ?? null,
+        })) ?? [],
         sequenceNo: messages.value.length,
         isStreaming: 0,
         createdAt: new Date().toISOString(),

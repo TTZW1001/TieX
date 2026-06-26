@@ -1,13 +1,25 @@
 import { ProviderRepository } from '../database/repositories/provider.repository'
 import { safeStorage } from 'electron'
 import type { ModelProvider } from '../../shared/types'
-import { DeepSeekProvider } from '../providers/deepseek-provider'
+import { getProvider } from '../providers/provider-factory'
 import type { ProviderConfig } from '../providers/model-provider'
 
 const providerRepo = new ProviderRepository()
-const deepseekProvider = new DeepSeekProvider()
 
 export class ProviderService {
+  async createProvider(data: Partial<ModelProvider>): Promise<ModelProvider> {
+    const provider = providerRepo.create(data)
+    if (data.is_default === 1) {
+      providerRepo.setDefault(provider.id)
+      return providerRepo.getById(provider.id)!
+    }
+    return provider
+  }
+
+  async listProviders(): Promise<ModelProvider[]> {
+    return providerRepo.listAll()
+  }
+
   async getDefaultProvider(): Promise<ModelProvider | null> {
     return providerRepo.getDefault()
   }
@@ -23,7 +35,37 @@ export class ProviderService {
     if (!id || typeof id !== 'string') {
       throw new Error('Invalid provider id')
     }
+    if (data.is_default === 1) {
+      providerRepo.setDefault(id)
+      const { is_default, ...rest } = data
+      if (Object.keys(rest).length > 0) {
+        providerRepo.update(id, rest)
+      }
+      return
+    }
     providerRepo.update(id, data)
+  }
+
+  async deleteProvider(id: string): Promise<void> {
+    if (!id || typeof id !== 'string') {
+      throw new Error('Invalid provider id')
+    }
+    const providers = providerRepo.listAll()
+    if (providers.length <= 1) {
+      throw new Error('至少需要保留一个 Provider')
+    }
+    const provider = providerRepo.getById(id)
+    if (!provider) {
+      throw new Error('模型服务商配置不存在')
+    }
+    const wasDefault = provider.is_default === 1
+    providerRepo.softDelete(id)
+    if (wasDefault) {
+      const nextProvider = providerRepo.listAll()[0]
+      if (nextProvider) {
+        providerRepo.setDefault(nextProvider.id)
+      }
+    }
   }
 
   async setApiKey(id: string, apiKey: string): Promise<void> {
@@ -84,7 +126,7 @@ export class ProviderService {
       timeoutMs: provider.timeout_ms,
     }
 
-    return deepseekProvider.testConnection(config)
+    return getProvider(config.providerType).testConnection(config)
   }
 
   async testConnectionDraft(data: {
@@ -94,6 +136,7 @@ export class ProviderService {
     baseUrl: string
     modelName: string
     apiKey?: string
+    timeoutMs?: number
   }): Promise<{ success: boolean; message: string }> {
     if (!data.baseUrl || !data.modelName) {
       return { success: false, message: '请先填写 Base URL 和模型名称' }
@@ -117,9 +160,9 @@ export class ProviderService {
       baseUrl: data.baseUrl.trim(),
       model: data.modelName.trim(),
       apiKey,
-      timeoutMs: 60000,
+      timeoutMs: data.timeoutMs && data.timeoutMs > 0 ? data.timeoutMs : 60000,
     }
 
-    return deepseekProvider.testConnection(config)
+    return getProvider(config.providerType).testConnection(config)
   }
 }

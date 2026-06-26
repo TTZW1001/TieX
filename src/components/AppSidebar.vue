@@ -17,6 +17,7 @@ import {
   MoreHorizontal,
   Pencil,
   Trash2,
+  Info,
   Check,
   X,
 } from 'lucide-vue-next'
@@ -248,6 +249,12 @@ async function confirmDelete(event: MouseEvent, conv: { id: string; title: strin
   }
 }
 
+function openConversationDetail(event: MouseEvent, conv: { id: string }) {
+  event.stopPropagation()
+  openMenuId.value = null
+  router.push(`/conversation/${conv.id}/detail`)
+}
+
 // 点击外部关闭菜单
 function onWindowClick(event: MouseEvent) {
   if (!openMenuId.value) return
@@ -363,7 +370,10 @@ onMounted(() => {
                   </div>
                 </template>
                 <template v-else>
-                  <div class="conversation-title">{{ conv.title }}</div>
+                  <div class="conversation-title-row">
+                    <div class="conversation-title">{{ conv.title }}</div>
+                    <span v-if="conv.parent_conversation_id" class="branch-badge">分支</span>
+                  </div>
                   <div class="conversation-time">{{ formatTime(conv.updated_at) }}</div>
                 </template>
               </div>
@@ -378,6 +388,10 @@ onMounted(() => {
               </button>
 
               <div v-if="openMenuId === conv.id" class="conversation-menu" @click.stop>
+                <button class="menu-item" @click="openConversationDetail($event, conv)">
+                  <Info :size="14" />
+                  <span>详细信息</span>
+                </button>
                 <button class="menu-item" @click="startRename($event, conv)">
                   <Pencil :size="14" />
                   <span>重命名</span>
@@ -437,7 +451,9 @@ onMounted(() => {
   border-radius: 12px;
   display: grid;
   place-items: center;
-  background: var(--sidebar-pill-bg);
+  background: var(--sidebar-logo-bg);
+  border: 1px solid var(--sidebar-logo-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
   overflow: hidden;
   -webkit-app-region: no-drag;
@@ -653,6 +669,12 @@ onMounted(() => {
   flex: 1;
 }
 
+.conversation-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .conversation-title {
   font-size: 14px;
   line-height: 1.4;
@@ -661,6 +683,18 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.branch-badge {
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  flex: 0 0 auto;
 }
 
 .conversation-time {

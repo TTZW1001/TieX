@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import AppSidebar from '@/components/AppSidebar.vue'
 import AppTopbar from '@/components/AppTopbar.vue'
+import TaskDrawer from '@/components/TaskDrawer.vue'
 import { useUiStore } from '@/stores/ui.store'
 
 const uiStore = useUiStore()
 </script>
 
 <template>
-  <div class="app-layout" :class="{ 'sidebar-collapsed': uiStore.sidebarCollapsed }">
+  <div
+    class="app-layout"
+    :class="{
+      'sidebar-collapsed': uiStore.sidebarCollapsed,
+      'drawer-open': uiStore.drawerOpen,
+    }"
+  >
     <AppSidebar />
     <div class="main-area">
       <AppTopbar />
@@ -15,6 +22,7 @@ const uiStore = useUiStore()
         <router-view />
       </main>
     </div>
+    <TaskDrawer v-if="uiStore.drawerOpen" />
   </div>
 </template>
 
@@ -30,6 +38,14 @@ const uiStore = useUiStore()
 
 .app-layout.sidebar-collapsed {
   grid-template-columns: 96px 1fr;
+}
+
+.app-layout.drawer-open {
+  grid-template-columns: 360px minmax(0, 1fr) 380px;
+}
+
+.app-layout.sidebar-collapsed.drawer-open {
+  grid-template-columns: 96px minmax(0, 1fr) 380px;
 }
 
 .main-area {

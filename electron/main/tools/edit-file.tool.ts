@@ -4,7 +4,7 @@
  */
 import type { AgentTool, ToolExecutionContext } from './agent-tool.types'
 import { pathGuard } from '../security/path-guard'
-import { backupService, atomicWriteFile, computeContentHash } from '../services/backup.service'
+import { backupService, atomicWriteFile, computeContentHash, isAutoBackupEnabled } from '../services/backup.service'
 import { FileChangeRepository } from '../database/repositories/file-change.repository'
 import { existsSync, statSync, readFileSync } from 'fs'
 
@@ -220,7 +220,9 @@ export const editFileTool: AgentTool<EditFileInput, EditFileOutput> = {
     }
 
     // 创建备份
-    const backupPath = backupService.createBackup(context.taskId, context.workspaceRoot, input.path)
+    const backupPath = isAutoBackupEnabled()
+      ? backupService.createBackup(context.taskId, context.workspaceRoot, input.path)
+      : null
 
     // 原子写入
     atomicWriteFile(absolutePath, currentContent)

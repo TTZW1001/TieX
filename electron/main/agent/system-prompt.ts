@@ -3,16 +3,27 @@
  */
 import type { PermissionMode } from '../../shared/types'
 import { toolRegistry } from '../tools/tool-registry'
+import { SettingsRepository } from '../database/repositories/settings.repository'
+import { WorkspaceMemoryRepository } from '../database/repositories/workspace-memory.repository'
+import { getAgentProfile, type AgentRole } from './agent-profiles'
+
+const settingsRepo = new SettingsRepository()
+const workspaceMemoryRepo = new WorkspaceMemoryRepository()
 
 /**
  * 构建系统提示词
  */
 export function buildSystemPrompt(options: {
   permissionMode: PermissionMode
+  workspaceId?: string | null
   workspaceName?: string
   workspaceRootName?: string
+  agentRole?: AgentRole
+  agentPromptOverride?: string
 }): string {
-  const { permissionMode, workspaceName, workspaceRootName } = options
+  const { permissionMode, workspaceId, workspaceName, workspaceRootName } = options
+  const agentRole = options.agentRole ?? 'implementation'
+  const agentProfile = getAgentProfile(agentRole)
 
   const tools = toolRegistry.list()
   const toolList = tools
@@ -20,6 +31,18 @@ export function buildSystemPrompt(options: {
     .join('\n')
 
   const permissionDesc = getPermissionDescription(permissionMode)
+  const userDisplayName = (settingsRepo.get('user_display_name') ?? '').trim()
+  const userPreferences = (settingsRepo.get('user_preferences') ?? '').trim()
+  const globalMemory = (settingsRepo.get('global_memory') ?? '').trim()
+  const customSystemPrompt = (settingsRepo.get('custom_system_prompt') ?? '').trim()
+  const agentPrompt = (
+    options.agentPromptOverride ??
+    settingsRepo.get(agentProfile.promptKey) ??
+    agentProfile.defaultPrompt
+  ).trim()
+  const workspaceMemory = workspaceId
+    ? (workspaceMemoryRepo.getByWorkspaceId(workspaceId)?.content ?? '').trim()
+    : ''
 
   const workspaceInfo = workspaceName
     ? `\n当前工作区: ${workspaceName}（根目录: ${workspaceRootName ?? '未知'}）`
@@ -73,7 +96,15 @@ export function buildSystemPrompt(options: {
 `
     : ''
 
-  return `你是 TieX，一个运行在 Windows 本地桌面上的 AI 智能体（Agent）。你通过调用已注册的工具来操作本地资源，帮助用户完成任务。
+  return `你是 TieX，一个运行在 Windows 本地桌面上的 AI 智能体（Agent）。你当前扮演的角色是：${agentProfile.label}。你通过调用已注册的工具来操作本地资源，帮助用户完成任务。
+
+## 交互风格
+
+1. 默认用中文回复，语气自然、直接、愿意推进，不要空泛复述。
+2. 优先理解用户真正想完成的结果，再决定是否需要工具。
+3. 当你已经有足够信息时，主动往前推进，不要把明显可以自己做的事反过来丢给用户。
+4. 当遇到限制、失败或权限阻塞时，清楚说明现状，并给出下一步可执行方案。
+5. 在不违反工具和路径边界的前提下，尽量保持高行动性和连续性。
 
 ## 核心规则
 
@@ -91,6 +122,11 @@ ${writeToolRules}${commandToolRules}
 ${workspaceInfo}
 当前权限模式: ${permissionDesc}
 
+## 当前角色职责
+${agentPrompt}
+
+${userDisplayName ? `## 对用户的称呼\n默认使用“${userDisplayName}”称呼用户。\n` : ''}${userPreferences ? `## 用户偏好\n${userPreferences}\n` : ''}${globalMemory ? `## 用户长期偏好记忆\n${globalMemory}\n` : ''}${workspaceMemory ? `## 当前工作区记忆\n${workspaceMemory}\n` : ''}
+
 ## 权限模式说明
 - chat: 仅普通对话，不可调用文件工具
 - read: 可调用 list_files、read_file、search_files 等只读工具
@@ -106,7 +142,8 @@ ${workspaceInfo}
 - 工具结果可能被截断（truncated: true），此时需要使用更精确的参数重新查询。
 - read_file 支持分段读取，如果文件较大，可以使用 startOffset 和 maxLength 参数。
 - search_files 默认搜索文件名，设置 searchContent=true 可搜索文件内容。
-- 完成任务后，请用中文给出清晰的最终答复。`
+- 完成任务后，请用中文给出清晰的最终答复。
+${customSystemPrompt ? `\n## 额外自定义指令\n${customSystemPrompt}` : ''}`
 }
 
 /**

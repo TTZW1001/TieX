@@ -10,6 +10,7 @@ import {
   IPC_TASK_GET_STEPS,
   IPC_TASK_GET_TOOL_CALLS,
   IPC_TASK_GET_LOGS,
+  IPC_TASK_ROLLBACK,
 } from '../../shared/ipc'
 import type { CreateTaskRequest } from '../../shared/types'
 import { startAgentTask } from '../agent/agent-runtime'
@@ -18,11 +19,17 @@ import { TaskRepository } from '../database/repositories/task.repository'
 import { TaskStepRepository } from '../database/repositories/task-step.repository'
 import { ToolCallRepository } from '../database/repositories/tool-call.repository'
 import { OperationLogRepository } from '../database/repositories/operation-log.repository'
+import { FileChangeRepository } from '../database/repositories/file-change.repository'
+import { BackupService } from '../services/backup.service'
+import { WorkspaceRepository } from '../database/repositories/workspace.repository'
 
 const taskRepo = new TaskRepository()
 const taskStepRepo = new TaskStepRepository()
 const toolCallRepo = new ToolCallRepository()
 const operationLogRepo = new OperationLogRepository()
+const fileChangeRepo = new FileChangeRepository()
+const workspaceRepo = new WorkspaceRepository()
+const backupService = new BackupService()
 
 export function registerTaskIpc(): void {
   // 启动任务
@@ -82,5 +89,52 @@ export function registerTaskIpc(): void {
   ipcMain.handle(IPC_TASK_GET_LOGS, async (_event, taskId: string) => {
     if (!taskId) return []
     return operationLogRepo.getByTaskId(taskId)
+  })
+
+  ipcMain.handle(IPC_TASK_ROLLBACK, async (_event, taskId: string) => {
+    if (!taskId) {
+      throw new Error('taskId 不能为空')
+    }
+
+    const task = taskRepo.getById(taskId)
+    if (!task) {
+      return { success: false, restoredCount: 0, message: '任务不存在' }
+    }
+
+    if (!task.workspace_id) {
+      return { success: false, restoredCount: 0, message: '任务没有关联工作区，无法回滚' }
+    }
+
+    const workspace = workspaceRepo.getById(task.workspace_id)
+    if (!workspace) {
+      return { success: false, restoredCount: 0, message: '工作区不存在' }
+    }
+
+    const changes = fileChangeRepo.getAppliedByTaskId(taskId).slice().reverse()
+    let restoredCount = 0
+
+    for (const change of changes) {
+      const result = backupService.restoreFile(
+        change.task_id,
+        workspace.root_path,
+        change.relative_path,
+        change.after_hash ?? undefined
+      )
+      if (!result.success) {
+        return {
+          success: false,
+          restoredCount,
+          message: result.message || '回滚中断，存在无法恢复的文件',
+        }
+      }
+      fileChangeRepo.markReverted(change.id)
+      restoredCount += 1
+    }
+
+    return {
+      success: true,
+      restoredCount,
+      message: restoredCount > 0 ? `已回滚 ${restoredCount} 个文件变更` : '这个任务没有可回滚的文件变更',
+    }
   })
 }

@@ -51,6 +51,34 @@ export const useConversationStore = defineStore('conversation', () => {
     }
   }
 
+  async function branchConversation(conversationId: string, messageId: string) {
+    if (!window.tiex) return null
+    try {
+      const conv = await window.tiex.conversation.branchFromMessage(conversationId, messageId)
+      conversations.value.unshift(conv)
+      return conv
+    } catch (err) {
+      console.error('Failed to branch conversation:', err)
+      return null
+    }
+  }
+
+  async function updateConversationProvider(id: string, providerId: string | null): Promise<boolean> {
+    if (!window.tiex) return false
+    try {
+      await window.tiex.conversation.updateProvider(id, providerId)
+      const conv = conversations.value.find((item) => item.id === id)
+      if (conv) {
+        conv.provider_id = providerId
+        conv.updated_at = new Date().toISOString()
+      }
+      return true
+    } catch (err) {
+      console.error('Failed to update conversation provider:', err)
+      return false
+    }
+  }
+
   function setCurrentConversation(id: string | null) {
     currentConversationId.value = id
   }
@@ -104,7 +132,9 @@ export const useConversationStore = defineStore('conversation', () => {
     currentWorkspace,
     loadConversations,
     createConversation,
+    branchConversation,
     deleteConversation,
+    updateConversationProvider,
     setCurrentConversation,
     updateConversationTitle,
     renameConversation,

@@ -16,10 +16,30 @@ export interface ProviderConfig {
   timeoutMs: number
 }
 
+export interface ChatTextPart {
+  type: 'text'
+  text: string
+}
+
+export interface ChatImagePart {
+  type: 'image_url'
+  image_url: {
+    url: string
+  }
+}
+
+export type ChatMessageContent = string | Array<ChatTextPart | ChatImagePart>
+
 /** 聊天消息 */
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
-  content: string
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: ChatMessageContent
+  tool_calls?: Array<{
+    id: string
+    type: 'function'
+    function: { name: string; arguments: string }
+  }>
+  tool_call_id?: string
 }
 
 /** 模型请求 */

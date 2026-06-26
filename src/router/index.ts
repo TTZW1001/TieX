@@ -18,6 +18,11 @@ const router = createRouter({
       component: () => import('@/views/ConversationView.vue'),
     },
     {
+      path: '/conversation/:id/detail',
+      name: 'conversation-detail',
+      component: () => import('@/views/ConversationDetailView.vue'),
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),

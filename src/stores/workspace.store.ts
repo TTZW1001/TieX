@@ -11,6 +11,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const fileTree = ref<FileEntry[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const currentWorkspaceMemory = ref('')
 
   /** 当前工作区 ID */
   const currentWorkspaceId = computed(() => currentWorkspace.value?.id ?? null)
@@ -78,6 +79,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       const workspace = await window.tiex.workspace.switch(id)
       currentWorkspace.value = workspace
+      const memory = await window.tiex.memory.getWorkspace(id)
+      currentWorkspaceMemory.value = memory?.content ?? ''
       // 切换后重新加载文件树
       await loadFileTree()
       return true
@@ -229,6 +232,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function clearCurrentWorkspace() {
     currentWorkspace.value = null
     fileTree.value = []
+    currentWorkspaceMemory.value = ''
+  }
+
+  async function saveWorkspaceMemory(content: string): Promise<boolean> {
+    if (!window.tiex || !currentWorkspace.value) return false
+    try {
+      await window.tiex.memory.setWorkspace(currentWorkspace.value.id, content)
+      currentWorkspaceMemory.value = content
+      return true
+    } catch (err) {
+      console.error('Failed to save workspace memory:', err)
+      error.value = (err as Error).message
+      return false
+    }
   }
 
   return {
@@ -237,6 +254,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     currentWorkspaceId,
     currentWorkspaceName,
     currentWorkspacePath,
+    currentWorkspaceMemory,
     hasWorkspace,
     fileTree,
     loading,
@@ -250,6 +268,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     listFiles,
     readFile,
     searchFiles,
+    saveWorkspaceMemory,
     clearCurrentWorkspace,
   }
 })
