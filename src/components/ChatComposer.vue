@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { FolderOpen, Paperclip, Send, SlidersHorizontal, Square, X } from 'lucide-vue-next'
 import { useChatStore } from '@/stores/chat.store'
 import { useConversationStore } from '@/stores/conversation.store'
@@ -19,6 +19,7 @@ const inputText = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const attachments = ref<Array<{ path: string; name: string; mimeType: string | null; size: number | null }>>([])
 const showSessionConfig = ref(false)
+const sessionConfigWrap = ref<HTMLElement | null>(null)
 
 const showStopButton = computed(() => taskStore.isRunning || chatStore.isStreaming)
 
@@ -164,6 +165,13 @@ function toggleSessionConfig() {
   showSessionConfig.value = !showSessionConfig.value
 }
 
+function handleDocumentPointerDown(event: MouseEvent) {
+  const target = event.target as Node | null
+  if (!showSessionConfig.value || !target) return
+  if (sessionConfigWrap.value?.contains(target)) return
+  showSessionConfig.value = false
+}
+
 async function changeConversationProvider(event: Event) {
   const target = event.target as HTMLSelectElement | null
   const conversationId = conversationStore.currentConversationId
@@ -182,6 +190,14 @@ async function changePermissionMode(event: Event) {
   await conversationStore.loadConversations()
   showSessionConfig.value = true
 }
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleDocumentPointerDown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', handleDocumentPointerDown)
+})
 </script>
 
 <template>
@@ -206,10 +222,10 @@ async function changePermissionMode(event: Event) {
             <FolderOpen :size="14" />
             {{ workspaceStore.hasWorkspace ? workspaceStore.currentWorkspaceName : '选择工作区' }}
           </button>
-          <div v-if="currentConversation" class="session-config-wrap">
+          <div v-if="currentConversation" ref="sessionConfigWrap" class="session-config-wrap">
             <button class="chip session-config-trigger" @click="toggleSessionConfig">
               <SlidersHorizontal :size="14" />
-              会话设置
+              <span class="session-trigger-text">会话设置</span>
             </button>
             <div v-if="showSessionConfig" class="session-config-popover">
               <div class="session-config-head">
@@ -358,6 +374,14 @@ async function changePermissionMode(event: Event) {
 
 .session-config-wrap {
   position: relative;
+}
+
+.session-config-trigger {
+  max-width: 280px;
+}
+
+.session-trigger-text {
+  white-space: nowrap;
 }
 
 .composer-select-field {

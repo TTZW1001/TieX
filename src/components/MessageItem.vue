@@ -458,7 +458,9 @@ onBeforeUnmount(() => {
 }
 
 .markdown-body code {
-  background: var(--panel-2);
+  background: var(--code-inline-bg);
+  color: var(--code-inline-text);
+  border: 1px solid color-mix(in srgb, var(--code-border) 72%, transparent);
   padding: 2px 7px;
   border-radius: 6px;
   font-size: 0.9em;
@@ -466,16 +468,20 @@ onBeforeUnmount(() => {
 }
 
 .markdown-body pre {
-  background: color-mix(in srgb, var(--panel-2) 84%, transparent);
-  border: 1px solid var(--line);
+  background: var(--code-block-bg);
+  color: var(--code-block-text);
+  border: 1px solid var(--code-border);
   border-radius: 14px;
   padding: 16px;
   overflow-x: auto;
   margin: 10px 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .markdown-body pre code {
   background: transparent;
+  color: inherit;
+  border: 0;
   padding: 0;
   font-size: 0.85em;
   line-height: 1.6;
@@ -502,7 +508,7 @@ onBeforeUnmount(() => {
 }
 
 .markdown-body th {
-  background: color-mix(in srgb, var(--panel-2) 80%, transparent);
+  background: color-mix(in srgb, var(--panel-3) 82%, transparent);
   font-weight: 600;
 }
 

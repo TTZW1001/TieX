@@ -111,7 +111,7 @@ function handleStop() {
 <style scoped>
 .command-output {
   border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
-  background: color-mix(in srgb, var(--surface-dark) 74%, var(--panel));
+  background: color-mix(in srgb, var(--panel) 92%, var(--code-bg));
   border-radius: 12px;
   overflow: hidden;
   margin-top: 8px;
@@ -142,7 +142,7 @@ function handleStop() {
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 12px;
   font-weight: 600;
-  color: var(--surface-dark-text);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -205,7 +205,7 @@ function handleStop() {
 .cmd-exit-code,
 .cmd-duration {
   font-size: 10px;
-  color: var(--surface-dark-text-soft);
+  color: var(--muted);
   font-family: 'Consolas', monospace;
 }
 
@@ -216,8 +216,8 @@ function handleStop() {
   padding: 3px 8px;
   border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--surface-dark-elevated) 88%, transparent);
-  color: var(--surface-dark-text-soft);
+  background: color-mix(in srgb, var(--panel) 88%, var(--code-bg));
+  color: var(--muted);
   font-size: 10px;
   cursor: pointer;
   transition: all 0.15s;
@@ -236,8 +236,8 @@ function handleStop() {
 .cmd-output-text {
   margin: 0;
   padding: 10px 12px;
-  background: var(--code-bg);
-  color: var(--code-text);
+  background: var(--code-block-bg);
+  color: var(--code-block-text);
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   font-size: 11px;
   line-height: 1.5;

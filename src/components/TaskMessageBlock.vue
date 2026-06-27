@@ -141,7 +141,7 @@ const renderedSummary = computed(() => {
   border-radius: 999px;
   font-size: 11px;
   border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  background: color-mix(in srgb, var(--panel-2) 88%, transparent);
   color: var(--muted);
 }
 

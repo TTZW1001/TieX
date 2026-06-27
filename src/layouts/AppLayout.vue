@@ -32,7 +32,9 @@ const uiStore = useUiStore()
   display: grid;
   grid-template-columns: 360px 1fr;
   transition: grid-template-columns 0.25s ease;
-  background: var(--bg);
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--accent) 10%, transparent), transparent 26%),
+    linear-gradient(180deg, var(--canvas), var(--bg));
   color: var(--text);
 }
 

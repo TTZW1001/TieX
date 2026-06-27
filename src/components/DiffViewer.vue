@@ -114,17 +114,18 @@ function toggleExpand() {
   border: 1px solid var(--code-border);
   border-radius: 14px;
   overflow: hidden;
-  background: var(--code-bg);
-  color: var(--code-text);
+  background: var(--code-block-bg);
+  color: var(--code-block-text);
 }
 
 .diff-head {
   padding: 10px 12px;
-  background: var(--surface-dark-elevated);
+  background: color-mix(in srgb, var(--panel-2) 82%, var(--code-bg));
   font-size: 12px;
   display: flex;
   align-items: center;
   gap: 8px;
+  color: var(--text);
 }
 
 .op-badge {
@@ -146,6 +147,7 @@ function toggleExpand() {
 
 .file-path {
   font-family: Consolas, monospace;
+  color: var(--text);
 }
 
 .size-info {
@@ -158,7 +160,7 @@ function toggleExpand() {
   padding: 2px 10px;
   border-radius: 6px;
   border: 1px solid var(--line);
-  background: var(--surface-dark-soft);
+  background: color-mix(in srgb, var(--panel) 86%, var(--code-bg));
   color: var(--muted);
   font-size: 11px;
   cursor: pointer;
@@ -168,6 +170,7 @@ function toggleExpand() {
 .collapse-btn:hover {
   color: var(--text);
   border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 65%, var(--panel));
 }
 
 .diff pre {
@@ -176,7 +179,7 @@ function toggleExpand() {
   overflow: auto;
   font-size: 12px;
   line-height: 1.65;
-  color: var(--code-text);
+  color: var(--code-block-text);
 }
 
 .plus {
@@ -190,7 +193,7 @@ function toggleExpand() {
 .omit-marker {
   display: block;
   color: var(--muted);
-  background: var(--surface-dark-soft);
+  background: color-mix(in srgb, var(--panel) 72%, var(--code-bg));
   padding: 4px 0;
   font-style: italic;
   text-align: center;
