@@ -152,7 +152,7 @@ onBeforeUnmount(() => {
   height: 100%;
   overflow: auto;
   background:
-    radial-gradient(circle at 50% 24%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 30%),
+    radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--accent) 4%, transparent), transparent 24%),
     var(--bg);
   color: var(--text);
 }
@@ -163,19 +163,20 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  padding: 180px 24px 96px;
+  padding: 132px 24px 88px;
 }
 
 h1 {
   margin: 0 0 20px;
-  font-size: clamp(22px, 2.8vw, 34px);
+  font-size: clamp(24px, 3.2vw, 40px);
   line-height: 1.2;
   font-weight: 600;
   text-align: center;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.035em;
   color: var(--text-strong);
   min-height: 1.3em;
   position: relative;
+  max-width: 920px;
 }
 
 .type-caret {
@@ -190,7 +191,7 @@ h1 {
 .hero-copy {
   margin: 0 0 18px;
   color: var(--body);
-  font-size: 15px;
+  font-size: 16px;
   text-align: center;
 }
 
@@ -206,13 +207,13 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 14px;
+  min-height: 34px;
+  padding: 0 14px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
-  color: var(--text-strong);
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-surface) 92%, transparent);
+  color: var(--sidebar-text);
   font-size: 12px;
-  box-shadow: var(--shadow-soft);
 }
 
 .status-live {
@@ -220,32 +221,31 @@ h1 {
 }
 
 .prompt-shell {
-  width: min(760px, 92%);
+  width: min(820px, 92%);
   overflow: hidden;
-  border-radius: 24px;
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(12px);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--sidebar-surface) 96%, transparent);
+  border: 1px solid var(--sidebar-border);
+  box-shadow: var(--shadow-soft);
   animation: homeRise var(--duration-slow) var(--ease-out);
 }
 
 .prompt-shell:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
-  box-shadow: var(--shadow-pop);
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--sidebar-border));
+  box-shadow: 0 20px 38px rgba(34, 23, 15, 0.08);
 }
 
 .prompt-shell textarea {
   width: 100%;
-  min-height: 136px;
-  padding: 20px 20px 0;
+  min-height: 114px;
+  padding: 22px 22px 0;
   resize: none;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--text);
   font-size: 16px;
-  line-height: 1.7;
+  line-height: 1.75;
 }
 
 .prompt-shell textarea:focus-visible {
@@ -261,7 +261,7 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 20px 20px;
+  padding: 14px 22px 22px;
 }
 
 .workspace-chip {
@@ -281,27 +281,29 @@ h1 {
 }
 
 .quick-actions {
-  width: min(760px, 92%);
+  width: min(820px, 92%);
   display: flex;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-top: 20px;
+  margin-top: 18px;
 }
 
 .quick-action {
-  padding: 10px 14px;
+  padding: 9px 14px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 70%, transparent);
-  color: var(--text-strong);
-  font-size: 13px;
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-surface) 92%, transparent);
+  color: var(--sidebar-text);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
 .quick-action:hover {
-  background: var(--panel-2);
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
-  transform: translateY(-1px);
+  background: var(--sidebar-item-hover);
+  border-color: color-mix(in srgb, var(--sidebar-text-soft) 16%, var(--sidebar-border));
+  color: var(--text-strong);
 }
 
 @keyframes homeRise {
@@ -328,11 +330,11 @@ h1 {
 
 @media (max-width: 820px) {
   .home-center {
-    padding-top: 112px;
+    padding-top: 96px;
   }
 
   .prompt-shell textarea {
-    min-height: 120px;
+    min-height: 104px;
     font-size: 15px;
   }
 

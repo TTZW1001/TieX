@@ -6,7 +6,7 @@ const props = defineProps<{
   items: ModelUsageShareInfo[]
 }>()
 
-const palette = ['#d97757', '#4f8f73', '#4a6fa5', '#b286fd', '#d4a017', '#9c6644']
+const palette = ['#cc785c', '#5db872', '#5878b7', '#a47a45', '#6e8f86', '#8e5b52']
 
 const chartSegments = computed(() => {
   let offset = 0
@@ -55,7 +55,7 @@ const chartSegments = computed(() => {
 .usage-chart {
   display: grid;
   grid-template-columns: 180px 1fr;
-  gap: 18px;
+  gap: 20px;
   align-items: center;
 }
 
@@ -71,7 +71,7 @@ const chartSegments = computed(() => {
 }
 
 .ring {
-  stroke: color-mix(in srgb, var(--line) 88%, transparent);
+  stroke: color-mix(in srgb, var(--sidebar-border) 88%, transparent);
 }
 
 .segment {
@@ -82,7 +82,7 @@ const chartSegments = computed(() => {
 
 .usage-legend {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .legend-row {
@@ -90,7 +90,17 @@ const chartSegments = computed(() => {
   grid-template-columns: auto 1fr auto;
   gap: 10px;
   align-items: center;
-  font-size: 13px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  border: 1px solid transparent;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.legend-row:hover {
+  background: var(--sidebar-item-hover);
+  border-color: var(--sidebar-border);
 }
 
 .legend-dot {
@@ -100,7 +110,7 @@ const chartSegments = computed(() => {
 }
 
 .legend-label {
-  color: var(--text-strong);
+  color: var(--sidebar-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -108,7 +118,7 @@ const chartSegments = computed(() => {
 
 .legend-value,
 .legend-empty {
-  color: var(--muted);
+  color: var(--sidebar-text-muted);
 }
 
 @media (max-width: 900px) {

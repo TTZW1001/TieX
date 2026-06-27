@@ -36,8 +36,8 @@ onMounted(() => {
   <div class="detail-page">
     <div class="detail-wrap" v-if="detail">
       <div class="detail-hero">
-        <div class="detail-kicker">Conversation Detail</div>
-        <h2 class="display-serif">{{ detail.title }}</h2>
+        <div class="detail-kicker">TieX</div>
+        <h2>{{ detail.title }}</h2>
         <p class="detail-copy">
           {{ detail.workspace_name || '未绑定工作区' }} · {{ detail.message_count }} 条消息 · {{ detail.task_count }} 个任务
         </p>
@@ -61,7 +61,7 @@ onMounted(() => {
       <div class="detail-card">
         <div class="card-head">
           <div>
-            <h3 class="display-serif">会话摘要记忆</h3>
+            <h3>会话摘要记忆</h3>
             <p class="card-copy">这是 TieX 自动归纳出的当前会话上下文摘要，会参与后续推理。</p>
           </div>
         </div>
@@ -71,7 +71,7 @@ onMounted(() => {
       <div class="detail-card">
         <div class="card-head">
           <div>
-            <h3 class="display-serif">模型使用占比</h3>
+            <h3>模型使用占比</h3>
             <p class="card-copy">按这个会话已产生的 assistant token 统计。</p>
           </div>
         </div>
@@ -81,7 +81,7 @@ onMounted(() => {
       <div class="detail-card">
         <div class="card-head">
           <div>
-            <h3 class="display-serif">Token 曲线</h3>
+            <h3>Token 曲线</h3>
             <p class="card-copy">按时间粒度查看当前会话的 token 消耗。</p>
           </div>
           <div class="range-switch">
@@ -104,24 +104,36 @@ onMounted(() => {
 .detail-page {
   height: 100%;
   overflow: auto;
-  padding: 40px 36px 56px;
+  padding: 26px 28px 40px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--topbar-bg) 56%, transparent), transparent 180px),
+    var(--bg);
 }
 
 .detail-wrap {
-  width: min(980px, 100%);
+  width: min(1020px, 100%);
   margin: 0 auto;
 }
 
 .detail-hero {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .detail-kicker {
-  font-size: 12px;
-  letter-spacing: 0.16em;
+  font-size: 10px;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--muted-soft);
-  margin-bottom: 10px;
+  color: var(--topbar-text-soft);
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.detail-hero h2 {
+  margin: 0;
+  font-size: clamp(28px, 3.6vw, 38px);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  color: var(--text-strong);
 }
 
 .detail-copy,
@@ -129,6 +141,7 @@ onMounted(() => {
   color: var(--muted);
   line-height: 1.7;
   font-size: 13px;
+  margin-top: 8px;
 }
 
 .metric-grid {
@@ -140,9 +153,9 @@ onMounted(() => {
 
 .metric-card,
 .detail-card {
-  border: 1px solid var(--line);
-  border-radius: 24px;
-  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--sidebar-surface) 96%, transparent);
   box-shadow: var(--shadow-soft);
 }
 
@@ -151,15 +164,16 @@ onMounted(() => {
 }
 
 .metric-label {
-  color: var(--muted-soft);
+  color: var(--sidebar-text-muted);
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
+  font-weight: 600;
 }
 
 .metric-value {
   margin-top: 10px;
-  font-size: 32px;
+  font-size: 30px;
   font-weight: 600;
   color: var(--text-strong);
 }
@@ -171,8 +185,8 @@ onMounted(() => {
 }
 
 .detail-card {
-  padding: 22px;
-  margin-bottom: 18px;
+  padding: 20px;
+  margin-bottom: 16px;
 }
 
 .card-head {
@@ -184,12 +198,13 @@ onMounted(() => {
 }
 
 .summary-box {
-  border: 1px solid var(--line);
+  border: 1px solid var(--sidebar-border);
   border-radius: 16px;
   padding: 16px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg) 46%, transparent);
   line-height: 1.8;
   white-space: pre-wrap;
+  color: var(--text);
 }
 
 .range-switch {
@@ -199,19 +214,24 @@ onMounted(() => {
 }
 
 .range-btn {
-  border: 1px solid var(--line);
+  border: 1px solid var(--sidebar-border);
   border-radius: 999px;
   background: transparent;
-  color: var(--muted);
+  color: var(--sidebar-text-muted);
   padding: 8px 12px;
   text-transform: uppercase;
   font-size: 11px;
 }
 
+.range-btn:hover {
+  background: var(--sidebar-item-hover);
+  color: var(--sidebar-text);
+}
+
 .range-btn.active {
-  background: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--sidebar-border));
 }
 
 .detail-empty {
@@ -223,7 +243,7 @@ onMounted(() => {
 
 @media (max-width: 900px) {
   .detail-page {
-    padding: 28px 18px 36px;
+    padding: 22px 16px 30px;
   }
 
   .metric-grid {

@@ -29,22 +29,24 @@
   --code-block-text: #2c2925;
 
   /* —— 侧边栏 / 顶栏（浅色：暖奶油表面） —— */
-  --sidebar-bg: #f4eee0;
-  --sidebar-border: #e6dfd0;
-  --sidebar-text: #1a1918;
-  --sidebar-text-soft: #3b3934;
-  --sidebar-text-muted: #56524b;
-  --sidebar-text-faint: #706b62;
-  --sidebar-item-hover: rgba(204, 120, 92, 0.1);
-  --sidebar-item-active: rgba(204, 120, 92, 0.16);
-  --sidebar-pill-bg: #ebe5d4;
-  --sidebar-logo-bg: #f8f2e8;
-  --sidebar-logo-border: rgba(28, 46, 84, 0.1);
-  --sidebar-divider: #e6dfd0;
-  --topbar-bg: #f4eee0;
-  --topbar-text: #1a1918;
-  --topbar-text-soft: #5c5850;
-  --topbar-pill-bg: #ebe5d4;
+  --sidebar-bg: #f7f6f3;
+  --sidebar-bg-solid: #f7f6f3;
+  --sidebar-surface: #ffffff;
+  --sidebar-border: rgba(30, 29, 26, 0.08);
+  --sidebar-text: #1e1d1a;
+  --sidebar-text-soft: #4a463f;
+  --sidebar-text-muted: #757068;
+  --sidebar-text-faint: #969189;
+  --sidebar-item-hover: rgba(28, 26, 22, 0.055);
+  --sidebar-item-active: rgba(28, 26, 22, 0.085);
+  --sidebar-pill-bg: #f0ede8;
+  --sidebar-logo-bg: #ffffff;
+  --sidebar-logo-border: rgba(30, 29, 26, 0.08);
+  --sidebar-divider: rgba(30, 29, 26, 0.08);
+  --topbar-bg: #fbfaf7;
+  --topbar-text: #1e1d1a;
+  --topbar-text-soft: #787168;
+  --topbar-pill-bg: #f0ede8;
 
   /* —— 文本 —— */
   --text: #141413;
@@ -94,9 +96,9 @@
   /* —— 形态 —— */
   --radius: 20px;
   --radius-lg: 28px;
-  --sidebar-width: 296px;
+  --sidebar-width: 288px;
   --sidebar-collapsed: 72px;
-  --topbar-height: 72px;
+  --topbar-height: 64px;
 
   /* —— 动效 —— */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -132,22 +134,24 @@
   --code-block-text: var(--code-text);
 
   /* —— 侧边栏 / 顶栏（深色模式改成更冷的导航层） —— */
-  --sidebar-bg: linear-gradient(180deg, #12181d 0%, #0c1116 100%);
-  --sidebar-border: rgba(153, 181, 199, 0.1);
-  --sidebar-text: #f5f2eb;
-  --sidebar-text-soft: #d7dce2;
-  --sidebar-text-muted: #abb4bf;
-  --sidebar-text-faint: #7f8995;
-  --sidebar-item-hover: rgba(156, 180, 197, 0.1);
-  --sidebar-item-active: rgba(156, 180, 197, 0.16);
-  --sidebar-pill-bg: rgba(156, 180, 197, 0.08);
-  --sidebar-logo-bg: linear-gradient(180deg, #f6efe3 0%, #ece3d4 100%);
-  --sidebar-logo-border: rgba(196, 218, 233, 0.16);
-  --sidebar-divider: rgba(153, 181, 199, 0.1);
-  --topbar-bg: rgba(14, 19, 25, 0.92);
-  --topbar-text: #f5f2eb;
-  --topbar-text-soft: #c6ccd4;
-  --topbar-pill-bg: rgba(156, 180, 197, 0.08);
+  --sidebar-bg: #181715;
+  --sidebar-bg-solid: #181715;
+  --sidebar-surface: #1f1d1a;
+  --sidebar-border: rgba(244, 239, 231, 0.08);
+  --sidebar-text: #f1ede6;
+  --sidebar-text-soft: #ddd6cb;
+  --sidebar-text-muted: #aaa398;
+  --sidebar-text-faint: #7e786f;
+  --sidebar-item-hover: rgba(255, 252, 247, 0.06);
+  --sidebar-item-active: rgba(255, 252, 247, 0.095);
+  --sidebar-pill-bg: rgba(255, 252, 247, 0.06);
+  --sidebar-logo-bg: #f6efe3;
+  --sidebar-logo-border: rgba(244, 239, 231, 0.14);
+  --sidebar-divider: rgba(244, 239, 231, 0.08);
+  --topbar-bg: #12161d;
+  --topbar-text: #f4f1ea;
+  --topbar-text-soft: #aaa398;
+  --topbar-pill-bg: rgba(255, 252, 247, 0.06);
 
   /* —— 文本 —— */
   --text: #f4f2ed;

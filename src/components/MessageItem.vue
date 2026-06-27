@@ -236,7 +236,7 @@ onBeforeUnmount(() => {
 .message {
   display: flex;
   gap: 16px;
-  margin-bottom: 34px;
+  margin-bottom: 28px;
   align-items: flex-start;
 }
 
@@ -251,9 +251,9 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  color: var(--muted);
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-surface) 92%, transparent);
+  color: var(--sidebar-text-soft);
   border-radius: 999px;
   padding: 8px 12px;
   cursor: pointer;
@@ -278,12 +278,18 @@ onBeforeUnmount(() => {
 }
 
 .action-btn {
-  border: 1px solid var(--line);
+  border: 1px solid var(--sidebar-border);
   background: transparent;
-  color: var(--muted);
+  color: var(--sidebar-text-muted);
   border-radius: 999px;
   padding: 6px 10px;
   cursor: pointer;
+  font-size: 12px;
+}
+
+.action-btn:hover {
+  background: var(--sidebar-item-hover);
+  color: var(--sidebar-text);
 }
 
 /* 用户消息：头像 + 气泡整体靠右 */
@@ -295,24 +301,23 @@ onBeforeUnmount(() => {
 }
 
 .avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 14px;
-  background: var(--panel-2);
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--sidebar-bg) 65%, var(--sidebar-surface));
   display: grid;
   place-items: center;
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 700;
   flex: 0 0 auto;
   color: var(--text);
-  box-shadow: var(--shadow-soft);
+  border: 1px solid var(--sidebar-border);
 }
 
 /* 用户头像：橙色主题，与品牌色一致 */
 .avatar.user {
-  background: linear-gradient(135deg, #cc785c 0%, #d88d74 100%);
+  background: color-mix(in srgb, var(--accent) 88%, #ffffff);
   color: #fffaf3;
-  font-weight: 700;
 }
 
 /* AI 头像：始终用浅色背景，确保 logo 的橙+深蓝都清晰可见 */
@@ -320,7 +325,7 @@ onBeforeUnmount(() => {
   background: #faf6ed;
   color: #1d1b19;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border: 1px solid var(--sidebar-border);
 }
 
 .avatar.ai img {
@@ -331,7 +336,7 @@ onBeforeUnmount(() => {
 
 .bubble {
   min-width: 0;
-  max-width: 800px;
+  max-width: 780px;
 }
 
 /* 用户气泡：靠右、不限宽、由 message.user 容器控制整体位置 */
@@ -348,24 +353,24 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--muted-soft);
-  margin-bottom: 10px;
+  letter-spacing: 0.16em;
+  color: var(--sidebar-text-muted);
+  margin-bottom: 8px;
 }
 
 .bubble-content {
   line-height: 1.75;
-  font-size: 16px;
+  font-size: 15px;
+  color: var(--text);
 }
 
 .user-content {
   display: inline-block;
   text-align: left;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--panel)) 0%, color-mix(in srgb, var(--accent) 6%, var(--panel)) 100%);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--sidebar-surface) 98%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--sidebar-border));
   padding: 14px 18px;
-  border-radius: 22px 22px 6px 22px;
-  box-shadow: var(--shadow-soft);
+  border-radius: 20px 20px 8px 20px;
   color: var(--text-strong);
 }
 
@@ -389,8 +394,8 @@ onBeforeUnmount(() => {
   margin-top: 10px;
   padding: 10px 14px;
   border-radius: 10px;
-  background: var(--danger-soft);
-  border: 1px solid color-mix(in srgb, var(--danger-strong) 30%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 14%, var(--sidebar-border));
   display: flex;
   align-items: center;
   gap: 12px;
@@ -409,6 +414,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--danger-strong);
   cursor: pointer;
+  font-size: 12px;
 }
 
 .retry-btn:hover {
@@ -422,7 +428,8 @@ onBeforeUnmount(() => {
 .markdown-body {
   word-break: break-word;
   text-shadow: none;
-  font-size: 16px;
+  font-size: 15px;
+  color: var(--text);
 }
 
 .markdown-body p {
@@ -437,9 +444,9 @@ onBeforeUnmount(() => {
 .markdown-body h2,
 .markdown-body h3,
 .markdown-body h4 {
-  margin: 28px 0 12px;
-  font-weight: 500;
-  font-family: 'Cormorant Garamond', 'EB Garamond', Georgia, serif;
+  margin: 24px 0 12px;
+  font-weight: 600;
+  font-family: inherit;
   letter-spacing: -0.02em;
 }
 
@@ -508,7 +515,7 @@ onBeforeUnmount(() => {
 }
 
 .markdown-body th {
-  background: color-mix(in srgb, var(--panel-3) 82%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg) 60%, transparent);
   font-weight: 600;
 }
 

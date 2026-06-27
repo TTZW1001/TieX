@@ -287,21 +287,20 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .chat-composer-wrap {
-  padding: 18px max(28px, calc((100% - 860px) / 2)) 28px;
+  padding: 14px max(28px, calc((100% - 840px) / 2)) 24px;
 }
 
 .chat-composer {
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  border: 1px solid var(--line);
-  border-radius: 28px;
-  padding: 18px;
+  background: color-mix(in srgb, var(--sidebar-surface) 96%, transparent);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 26px;
+  padding: 16px;
   box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(18px);
 }
 
 .chat-composer:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
-  box-shadow: var(--shadow-pop);
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--sidebar-border));
+  box-shadow: 0 18px 34px rgba(34, 23, 15, 0.08);
 }
 
 .composer-status {
@@ -309,8 +308,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   min-height: 20px;
-  margin-bottom: 10px;
-  color: var(--muted);
+  margin-bottom: 8px;
+  color: var(--sidebar-text-muted);
   font-size: 12px;
 }
 
@@ -342,14 +341,14 @@ onBeforeUnmount(() => {
 
 .chat-composer textarea {
   width: 100%;
-  min-height: 92px;
+  min-height: 88px;
   resize: none;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--text);
-  font-size: 16px;
-  line-height: 1.7;
+  font-size: 15px;
+  line-height: 1.75;
 }
 
 .chat-composer textarea:disabled {
@@ -362,7 +361,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .composer-left {
@@ -399,10 +398,9 @@ onBeforeUnmount(() => {
   width: min(320px, calc(100vw - 56px));
   padding: 14px;
   border-radius: 18px;
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 96%, transparent);
-  box-shadow: var(--shadow-pop);
-  backdrop-filter: blur(18px);
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-surface) 98%, transparent);
+  box-shadow: 0 18px 34px rgba(34, 23, 15, 0.12);
 }
 
 .session-config-head {
@@ -427,8 +425,8 @@ onBeforeUnmount(() => {
 }
 
 .popover-close:hover {
-  background: color-mix(in srgb, var(--panel-2) 86%, transparent);
-  border-color: var(--line);
+  background: var(--sidebar-item-hover);
+  border-color: var(--sidebar-border);
   color: var(--text);
 }
 
@@ -443,15 +441,15 @@ onBeforeUnmount(() => {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--sidebar-text-muted);
 }
 
 .composer-select {
   min-height: 36px;
   padding: 0 12px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-bg) 42%, transparent);
   color: var(--text);
 }
 
@@ -465,9 +463,9 @@ onBeforeUnmount(() => {
   min-height: 36px;
   padding: 0 12px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  color: var(--text-strong);
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-bg) 42%, transparent);
+  color: var(--sidebar-text);
   max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -485,12 +483,12 @@ onBeforeUnmount(() => {
   margin-top: 10px;
   font-size: 11px;
   line-height: 1.5;
-  color: var(--muted);
+  color: var(--sidebar-text-muted);
 }
 
 .attachment-hint {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--sidebar-text-muted);
 }
 
 .workspace-chip {
@@ -517,9 +515,9 @@ onBeforeUnmount(() => {
   gap: 6px;
   padding: 8px 10px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 90%, transparent);
-  color: var(--muted);
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-bg) 52%, transparent);
+  color: var(--sidebar-text-soft);
   max-width: 100%;
 }
 
@@ -533,7 +531,7 @@ onBeforeUnmount(() => {
 .attachment-remove {
   border: 0;
   background: transparent;
-  color: var(--muted-soft);
+  color: var(--sidebar-text-muted);
   cursor: pointer;
   display: grid;
   place-items: center;

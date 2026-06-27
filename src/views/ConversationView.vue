@@ -412,7 +412,7 @@ async function branchFromMessage(message: ChatMessage) {
         </template>
 
         <div v-if="mergedFeed.length === 0" class="empty-state">
-          <div class="empty-mark display-serif">TieX</div>
+          <div class="empty-mark">TieX</div>
           <div class="empty-text">等待第一条任务</div>
           <div class="empty-subtext">从下面输入一个目标开始对话。</div>
         </div>
@@ -428,6 +428,9 @@ async function branchFromMessage(message: ChatMessage) {
   width: 100%;
   height: 100%;
   display: block;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--topbar-bg) 48%, transparent), transparent 180px),
+    var(--bg);
 }
 
 .chat-main {
@@ -439,24 +442,22 @@ async function branchFromMessage(message: ChatMessage) {
 .session-strip {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px max(28px, calc((100% - 860px) / 2)) 0;
+  gap: 8px;
+  padding: 14px max(28px, calc((100% - 840px) / 2)) 0;
   flex-wrap: wrap;
 }
 
 .session-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 12px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  border: 1px solid var(--line);
-  color: var(--text-strong);
-}
-
-.activity-pill {
-  color: var(--muted);
+  background: color-mix(in srgb, var(--sidebar-surface) 92%, transparent);
+  border: 1px solid var(--sidebar-border);
+  color: var(--sidebar-text-soft);
+  font-size: 12px;
 }
 
 .activity-pill.running {
@@ -464,7 +465,7 @@ async function branchFromMessage(message: ChatMessage) {
 }
 
 .activity-pill.idle {
-  border-color: color-mix(in srgb, var(--success) 24%, var(--line));
+  border-color: color-mix(in srgb, var(--success) 16%, var(--sidebar-border));
   color: var(--success-strong);
 }
 
@@ -474,26 +475,26 @@ async function branchFromMessage(message: ChatMessage) {
 
 .agent-pill.running {
   color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .agent-pill.completed {
   color: var(--success-strong);
-  border-color: color-mix(in srgb, var(--success) 28%, var(--line));
-  background: color-mix(in srgb, var(--success) 10%, transparent);
+  border-color: color-mix(in srgb, var(--success) 14%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--success) 8%, transparent);
 }
 
 .agent-pill.failed {
   color: var(--danger-strong);
-  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 14%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .messages {
   flex: 1;
   overflow: auto;
-  padding: 24px max(28px, calc((100% - 860px) / 2)) 16px;
+  padding: 24px max(28px, calc((100% - 840px) / 2)) 16px;
 }
 
 .empty-state {
@@ -507,20 +508,25 @@ async function branchFromMessage(message: ChatMessage) {
 }
 
 .empty-mark {
-  font-size: 56px;
-  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted-soft);
   line-height: 1;
 }
 
 .empty-text {
-  font-size: 15px;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--text-strong);
 }
 
 .empty-subtext {
-  max-width: 380px;
+  max-width: 420px;
   text-align: center;
   color: var(--muted-soft);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
 }
 
@@ -531,20 +537,20 @@ async function branchFromMessage(message: ChatMessage) {
 }
 
 .load-more-btn {
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
-  border: 1px solid var(--line);
-  color: var(--text-strong);
+  background: color-mix(in srgb, var(--sidebar-surface) 92%, transparent);
+  border: 1px solid var(--sidebar-border);
+  color: var(--sidebar-text);
   padding: 8px 18px;
   border-radius: 999px;
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
 .load-more-btn:hover:not(:disabled) {
-  color: var(--text);
-  border-color: var(--accent);
-  transform: translateY(-1px);
+  color: var(--text-strong);
+  border-color: color-mix(in srgb, var(--sidebar-text-soft) 16%, var(--sidebar-border));
+  background: var(--sidebar-item-hover);
 }
 
 .load-more-btn:disabled {

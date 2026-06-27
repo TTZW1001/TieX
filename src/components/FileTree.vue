@@ -298,18 +298,20 @@ onMounted(() => {
 }
 
 .tree-header {
-  padding: 16px 16px 10px;
+  padding: 14px 16px 10px;
   font-size: 12px;
   font-weight: 600;
   color: var(--muted-soft);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
+  border-bottom: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-bg) 50%, transparent);
 }
 
 .tree-body {
   flex: 1;
   overflow: auto;
-  padding: 0 10px 10px;
+  padding: 8px 10px 10px;
 }
 
 .tree-loading,
@@ -348,20 +350,20 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
-  border-radius: 12px;
+  border-radius: 10px;
   cursor: pointer;
   font-size: 13px;
   color: var(--text);
   user-select: none;
-  transition: background 0.12s ease;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .tree-node:hover {
-  background: var(--panel-2);
+  background: var(--sidebar-item-hover);
 }
 
 .tree-node.is-selected {
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel-2));
+  background: var(--sidebar-item-active);
   color: var(--text-strong);
 }
 
@@ -373,7 +375,7 @@ onMounted(() => {
 .chevron {
   color: var(--muted);
   flex-shrink: 0;
-  transition: transform 0.18s ease;
+  transition: transform 180ms ease, color 120ms ease;
 }
 
 .chevron.rotated {
@@ -390,15 +392,22 @@ onMounted(() => {
 }
 
 .dir-icon {
-  color: var(--accent);
+  color: var(--sidebar-text-soft);
 }
 
 .file-icon {
-  color: var(--muted);
+  color: var(--sidebar-text-muted);
 }
 
 .tree-node.is-selected .file-icon {
-  color: var(--accent);
+  color: var(--sidebar-text);
+}
+
+.tree-node.is-selected .dir-icon,
+.tree-node:hover .dir-icon,
+.tree-node:hover .file-icon,
+.tree-node:hover .chevron {
+  color: var(--sidebar-text);
 }
 
 .node-name {

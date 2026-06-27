@@ -72,10 +72,9 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--accent) 12%, transparent) 0, transparent 32%),
-    radial-gradient(circle at 88% 10%, color-mix(in srgb, var(--panel-3) 24%, transparent) 0, transparent 22%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 80%, transparent), transparent 42%);
-  opacity: 1;
+    radial-gradient(circle at 18% 10%, color-mix(in srgb, var(--accent) 5%, transparent) 0, transparent 22%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 56%, transparent), transparent 34%);
+  opacity: 0.9;
 }
 
 body::after {
@@ -84,18 +83,13 @@ body::after {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background-image:
-    linear-gradient(rgba(20, 20, 19, 0.015) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(20, 20, 19, 0.015) 1px, transparent 1px);
-  background-size: 28px 28px;
-  opacity: 0.18;
+  background-image: none;
+  opacity: 0;
 }
 
 [data-theme='dark'] body::after {
-  background-image:
-    linear-gradient(rgba(250, 249, 245, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(250, 249, 245, 0.02) 1px, transparent 1px);
-  opacity: 0.18;
+  background-image: none;
+  opacity: 0;
 }
 
 ::selection {
@@ -198,11 +192,6 @@ body::after {
 
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
-}
-
-.display-serif {
-  font-family: 'Cormorant Garamond', 'EB Garamond', Georgia, serif;
-  letter-spacing: -0.03em;
 }
 
 @media (prefers-reduced-motion: reduce) {

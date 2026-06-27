@@ -8,6 +8,97 @@ import type {
 
 type RangeKey = 'hour' | 'day' | 'week' | 'month'
 
+type RangeConfig = {
+  count: number
+  floor(date: Date): Date
+  add(date: Date, step: number): Date
+  format(date: Date): string
+}
+
+const RANGE_CONFIG: Record<RangeKey, RangeConfig> = {
+  hour: {
+    count: 24,
+    floor(date) {
+      const next = new Date(date)
+      next.setMinutes(0, 0, 0)
+      return next
+    },
+    add(date, step) {
+      const next = new Date(date)
+      next.setHours(next.getHours() + step)
+      return next
+    },
+    format(date) {
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:00`
+    },
+  },
+  day: {
+    count: 30,
+    floor(date) {
+      const next = new Date(date)
+      next.setHours(0, 0, 0, 0)
+      return next
+    },
+    add(date, step) {
+      const next = new Date(date)
+      next.setDate(next.getDate() + step)
+      return next
+    },
+    format(date) {
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    },
+  },
+  week: {
+    count: 12,
+    floor(date) {
+      const next = new Date(date)
+      next.setHours(0, 0, 0, 0)
+      const day = next.getDay()
+      const diff = day === 0 ? -6 : 1 - day
+      next.setDate(next.getDate() + diff)
+      return next
+    },
+    add(date, step) {
+      const next = new Date(date)
+      next.setDate(next.getDate() + step * 7)
+      return next
+    },
+    format(date) {
+      return `${date.getFullYear()}-W${pad(getWeekNumber(date))}`
+    },
+  },
+  month: {
+    count: 12,
+    floor(date) {
+      return new Date(date.getFullYear(), date.getMonth(), 1)
+    },
+    add(date, step) {
+      return new Date(date.getFullYear(), date.getMonth() + step, 1)
+    },
+    format(date) {
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}`
+    },
+  },
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+function getWeekNumber(date: Date): number {
+  const target = new Date(date)
+  target.setHours(0, 0, 0, 0)
+  const thursday = new Date(target)
+  const day = thursday.getDay()
+  const diff = day === 0 ? -3 : 4 - day
+  thursday.setDate(thursday.getDate() + diff)
+  const yearStart = new Date(thursday.getFullYear(), 0, 1)
+  const yearStartDay = yearStart.getDay()
+  const yearStartDiff = yearStartDay === 0 ? -6 : 1 - yearStartDay
+  yearStart.setDate(yearStart.getDate() + yearStartDiff)
+  return Math.floor((thursday.getTime() - yearStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1
+}
+
 function mapUsage(rows: Array<any>): ModelUsageShare[] {
   const total = rows.reduce((sum, row) => sum + (row.tokens ?? 0), 0) || 1
   return rows.map((row) => ({
@@ -26,29 +117,39 @@ function buildSeries(
   params: any[],
   range: RangeKey
 ): TokenPoint[] {
-  const formats: Record<RangeKey, string> = {
-    hour: '%Y-%m-%d %H:00',
-    day: '%Y-%m-%d',
-    week: '%Y-W%W',
-    month: '%Y-%m',
-  }
+  const config = RANGE_CONFIG[range]
+  const end = config.floor(new Date())
+  const start = config.add(end, -(config.count - 1))
 
   const rows = db
     .prepare(
-      `SELECT strftime('${formats[range]}', m.created_at, 'localtime') AS bucket,
-              COALESCE(SUM(m.token_count), 0) AS tokens
+      `SELECT m.created_at, COALESCE(m.token_count, 0) AS tokens
        FROM messages m
        LEFT JOIN conversations c ON c.id = m.conversation_id
        ${whereSql}
        AND m.role = 'assistant'
-       GROUP BY bucket
-       ORDER BY bucket ASC`
+       AND datetime(m.created_at) >= datetime(?)
+       ORDER BY m.created_at ASC`
     )
-    .all(...params) as Array<{ bucket: string; tokens: number }>
+    .all(...params, start.toISOString()) as Array<{ created_at: string; tokens: number }>
 
-  return rows.map((row) => ({
-    bucket: row.bucket,
-    tokens: row.tokens ?? 0,
+  const bucketMap = new Map<string, number>()
+  for (let index = 0; index < config.count; index += 1) {
+    const bucketDate = config.add(start, index)
+    bucketMap.set(config.format(bucketDate), 0)
+  }
+
+  for (const row of rows) {
+    const createdAt = new Date(row.created_at)
+    if (Number.isNaN(createdAt.getTime())) continue
+    const bucketKey = config.format(config.floor(createdAt))
+    if (!bucketMap.has(bucketKey)) continue
+    bucketMap.set(bucketKey, (bucketMap.get(bucketKey) ?? 0) + (row.tokens ?? 0))
+  }
+
+  return Array.from(bucketMap.entries()).map(([bucket, tokens]) => ({
+    bucket,
+    tokens,
   }))
 }
 

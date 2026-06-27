@@ -19,11 +19,10 @@ const router = createRouter({
     },
     {
       path: '/conversation/:id/detail',
-      name: 'conversation-detail',
-      component: () => import('@/views/ConversationDetailView.vue'),
+      redirect: (to) => `/conversation/${String(to.params.id ?? '')}`,
     },
     {
-      path: '/settings',
+      path: '/settings/:section?',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),
     },

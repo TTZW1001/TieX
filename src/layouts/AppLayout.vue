@@ -30,8 +30,9 @@ const uiStore = useUiStore()
 .app-layout {
   height: 100%;
   display: grid;
-  grid-template-columns: 360px 1fr;
-  transition: grid-template-columns 0.25s ease;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  transition: grid-template-columns var(--duration-base) var(--ease-out);
+  will-change: grid-template-columns;
   background:
     radial-gradient(circle at top, color-mix(in srgb, var(--accent) 10%, transparent), transparent 26%),
     linear-gradient(180deg, var(--canvas), var(--bg));
@@ -39,15 +40,15 @@ const uiStore = useUiStore()
 }
 
 .app-layout.sidebar-collapsed {
-  grid-template-columns: 96px 1fr;
+  grid-template-columns: var(--sidebar-collapsed) 1fr;
 }
 
 .app-layout.drawer-open {
-  grid-template-columns: 360px minmax(0, 1fr) 380px;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 380px;
 }
 
 .app-layout.sidebar-collapsed.drawer-open {
-  grid-template-columns: 96px minmax(0, 1fr) 380px;
+  grid-template-columns: var(--sidebar-collapsed) minmax(0, 1fr) 380px;
 }
 
 .main-area {

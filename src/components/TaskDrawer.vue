@@ -34,6 +34,15 @@ const md = new MarkdownIt({
   typographer: true,
 })
 
+const drawerTabs = [
+  { key: 'workspace', label: '工作区' },
+  { key: 'steps', label: '步骤' },
+  { key: 'files', label: '工具调用' },
+  { key: 'changes', label: '文件变更' },
+  { key: 'artifacts', label: '生成物' },
+  { key: 'logs', label: '日志' },
+] as const
+
 // 监听当前任务变化，加载文件变更和生成物
 watch(() => taskStore.currentTask?.id, async (taskId) => {
   if (taskId) {
@@ -240,14 +249,17 @@ async function rollbackCurrentTask() {
   <aside class="right-drawer">
     <div class="drawer-inner">
       <div class="drawer-head">
-        <span>任务详情</span>
-        <button class="icon-btn" style="margin-left: auto" @click="uiStore.toggleDrawer">
+        <div class="drawer-head-copy">
+          <div class="drawer-kicker">TieX</div>
+          <div class="drawer-title">任务详情</div>
+        </div>
+        <button class="drawer-close-btn" @click="uiStore.toggleDrawer" title="收起任务面板">
           <X :size="16" />
         </button>
       </div>
 
       <!-- 任务概览 -->
-      <div class="task-summary" v-if="taskStore.currentTask">
+      <div class="task-summary drawer-card" v-if="taskStore.currentTask">
         <div class="task-title">{{ taskStore.currentTask.title || '未命名任务' }}</div>
         <div class="task-meta">
           <span class="task-status" :class="`status-${taskStore.currentTask.status}`">
@@ -266,48 +278,16 @@ async function rollbackCurrentTask() {
 
       <div class="drawer-tabs">
         <button
+          v-for="tab in drawerTabs"
+          :key="tab.key"
           class="drawer-tab"
-          :class="{ active: uiStore.activeDrawerTab === 'workspace' }"
-          @click="uiStore.setDrawerTab('workspace')"
+          :class="{ active: uiStore.activeDrawerTab === tab.key }"
+          @click="uiStore.setDrawerTab(tab.key)"
         >
-          工作区
-        </button>
-        <button
-          class="drawer-tab"
-          :class="{ active: uiStore.activeDrawerTab === 'steps' }"
-          @click="uiStore.setDrawerTab('steps')"
-        >
-          步骤
-        </button>
-        <button
-          class="drawer-tab"
-          :class="{ active: uiStore.activeDrawerTab === 'files' }"
-          @click="uiStore.setDrawerTab('files')"
-        >
-          工具调用
-        </button>
-        <button
-          class="drawer-tab"
-          :class="{ active: uiStore.activeDrawerTab === 'changes' }"
-          @click="uiStore.setDrawerTab('changes')"
-        >
-          文件变更
-        </button>
-        <button
-          class="drawer-tab"
-          :class="{ active: uiStore.activeDrawerTab === 'artifacts' }"
-          @click="uiStore.setDrawerTab('artifacts')"
-        >
-          生成物
-        </button>
-        <button
-          class="drawer-tab"
-          :class="{ active: uiStore.activeDrawerTab === 'logs' }"
-          @click="uiStore.setDrawerTab('logs')"
-        >
-          日志
+          {{ tab.label }}
         </button>
       </div>
+
       <div class="drawer-list">
         <!-- 空状态 -->
         <div v-if="!taskStore.currentTask && uiStore.activeDrawerTab !== 'workspace'" class="empty-drawer">
@@ -348,7 +328,7 @@ async function rollbackCurrentTask() {
                     </div>
                   </div>
                   <div v-if="loadingFilePreview" class="empty-tab preview-empty">
-                    <Loader2 :size="16" class="spin" style="vertical-align: -3px" /> 加载中...
+                    <Loader2 :size="16" class="spin inline-loader" /> 加载中...
                   </div>
                   <pre v-else class="preview-code">{{ selectedFilePreview }}</pre>
                 </template>
@@ -446,7 +426,7 @@ async function rollbackCurrentTask() {
           <!-- File Changes tab -->
           <template v-if="uiStore.activeDrawerTab === 'changes'">
             <div v-if="loadingChanges" class="empty-tab">
-              <Loader2 :size="16" class="spin" style="vertical-align: -3px" /> 加载中...
+              <Loader2 :size="16" class="spin inline-loader" /> 加载中...
             </div>
             <template v-else>
               <div
@@ -455,7 +435,7 @@ async function rollbackCurrentTask() {
                 class="change-card"
               >
                 <div class="change-head">
-                  <FileText :size="14" style="flex-shrink: 0; margin-top: 2px" />
+                  <FileText :size="14" class="change-file-icon" />
                   <span class="change-path">{{ change.relative_path }}</span>
                   <span class="change-op" :class="`op-${change.operation}`">{{ change.operation }}</span>
                   <span v-if="change.status === 'reverted'" class="change-reverted">已恢复</span>
@@ -467,7 +447,7 @@ async function rollbackCurrentTask() {
                     @click="restoreChange(change)"
                     :disabled="restoringId === change.id"
                   >
-                    <RotateCcw :size="12" style="vertical-align: -1px" />
+                    <RotateCcw :size="12" class="button-icon" />
                     {{ restoringId === change.id ? '恢复中...' : '恢复此文件' }}
                   </button>
                 </div>
@@ -479,7 +459,7 @@ async function rollbackCurrentTask() {
           <!-- Artifacts tab -->
           <template v-if="uiStore.activeDrawerTab === 'artifacts'">
             <div v-if="loadingArtifacts" class="empty-tab">
-              <Loader2 :size="16" class="spin" style="vertical-align: -3px" /> 加载中...
+              <Loader2 :size="16" class="spin inline-loader" /> 加载中...
             </div>
             <template v-else>
               <ArtifactCard
@@ -515,43 +495,93 @@ async function rollbackCurrentTask() {
 
 <style scoped>
 .right-drawer {
-  border-left: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 98%, transparent);
+  border-left: 1px solid var(--sidebar-border);
+  background: var(--topbar-bg);
   min-width: 0;
   overflow: hidden;
 }
 
 .drawer-inner {
-  width: 380px;
+  width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 .drawer-head {
-  height: 72px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--line);
+  height: var(--topbar-height);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--sidebar-border);
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+
+.drawer-head-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-kicker {
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--topbar-text-soft);
+  font-weight: 700;
+}
+
+.drawer-title {
+  margin-top: 4px;
+  font-size: 15px;
+  line-height: 1.15;
   font-weight: 600;
-  font-size: 24px;
-  font-family: 'Cormorant Garamond', 'EB Garamond', Georgia, serif;
-  letter-spacing: -0.03em;
+  color: var(--topbar-text);
+}
+
+.drawer-close-btn {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--topbar-text-soft);
+  display: grid;
+  place-items: center;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.drawer-close-btn:hover {
+  background: color-mix(in srgb, var(--topbar-pill-bg) 94%, transparent);
+  border-color: var(--sidebar-border);
+  color: var(--topbar-text);
+}
+
+.drawer-card,
+.workspace-panel-tree,
+.workspace-panel-preview,
+.toolcall-row,
+.change-card {
+  border: 1px solid var(--sidebar-border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--sidebar-surface) 94%, transparent);
+  box-shadow: var(--shadow-soft);
 }
 
 .task-summary {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--line);
+  margin: 14px 14px 0;
+  padding: 14px;
 }
 
 .task-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   margin-bottom: 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--text-strong);
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .task-meta {
@@ -568,77 +598,86 @@ async function rollbackCurrentTask() {
 }
 
 .task-status {
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .status-running,
 .status-executing_tool {
-  background: rgba(79, 70, 229, 0.15);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
 }
 
 .status-completed {
-  background: rgba(34, 197, 94, 0.15);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
   color: var(--success);
 }
 
 .status-failed,
 .status-interrupted {
-  background: rgba(239, 68, 68, 0.15);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
 }
 
 .status-stopped {
-  background: rgba(245, 158, 11, 0.15);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
   color: var(--warning);
 }
 
 .status-pending,
 .status-waiting_permission {
-  background: rgba(100, 116, 139, 0.15);
-  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  color: var(--muted-soft);
 }
 
 .drawer-tabs {
-  display: flex;
-  padding: 14px 14px 10px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 12px 14px 0;
   gap: 6px;
-  flex-wrap: wrap;
 }
 
 .drawer-tab {
-  flex: 1 1 calc(50% - 6px);
   border: 0;
-  background: color-mix(in srgb, var(--panel-2) 82%, transparent);
+  background: transparent;
+  border: 1px solid var(--sidebar-border);
   border-radius: 999px;
-  padding: 10px 8px;
-  color: var(--muted);
+  padding: 9px 10px;
+  color: var(--sidebar-text-muted);
   font-size: 12px;
+  font-weight: 500;
   text-align: center;
   cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.drawer-tab:hover {
+  background: var(--sidebar-item-hover);
+  color: var(--sidebar-text);
 }
 
 .drawer-tab.active {
-  background: var(--panel-3);
-  color: var(--text-strong);
+  background: var(--sidebar-item-active);
+  border-color: color-mix(in srgb, var(--sidebar-text-soft) 16%, var(--sidebar-border));
+  color: var(--sidebar-text);
 }
 
 .drawer-list {
-  padding: 8px 16px 18px;
+  padding: 14px;
   overflow: auto;
   flex: 1;
 }
 
 .workspace-memory-card {
   margin-bottom: 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--sidebar-border);
   border-radius: 14px;
   padding: 12px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg) 60%, var(--sidebar-surface));
 }
 
 .workspace-memory-head {
@@ -659,11 +698,19 @@ async function rollbackCurrentTask() {
   width: 100%;
   resize: vertical;
   min-height: 88px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--sidebar-border);
   border-radius: 12px;
   background: transparent;
   color: var(--text);
   padding: 10px 12px;
+  font: inherit;
+  line-height: 1.6;
+}
+
+.workspace-memory-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--sidebar-border));
+  box-shadow: var(--focus-ring);
 }
 
 .workspace-panel {
@@ -671,32 +718,27 @@ async function rollbackCurrentTask() {
   gap: 14px;
 }
 
-.workspace-panel-tree,
-.workspace-panel-preview {
-  border: 1px solid var(--line-soft);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--panel-2) 78%, transparent);
-  overflow: hidden;
-}
-
 .workspace-panel-tree {
   min-height: 260px;
+  overflow: hidden;
 }
 
 .workspace-panel-preview {
   display: flex;
   flex-direction: column;
   min-height: 260px;
+  overflow: hidden;
 }
 
 .preview-head {
   padding: 14px 16px 10px;
-  border-bottom: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-bg) 50%, transparent);
 }
 
 .preview-title {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-strong);
 }
 
@@ -719,6 +761,7 @@ async function rollbackCurrentTask() {
   word-break: break-word;
   font-size: 12px;
   line-height: 1.6;
+  background: color-mix(in srgb, var(--sidebar-surface) 88%, transparent);
   font-family: 'Consolas', 'Monaco', monospace;
   color: var(--text);
 }
@@ -739,23 +782,25 @@ async function rollbackCurrentTask() {
 }
 
 .empty-tab {
-  padding: 24px;
+  padding: 24px 18px;
   text-align: center;
   color: var(--muted);
   font-size: 12px;
+  line-height: 1.6;
 }
 
 .step-row {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 10px;
-  border-radius: 10px;
+  padding: 12px;
+  border-radius: 14px;
   font-size: 13px;
+  transition: background-color 120ms ease;
 }
 
 .step-row:hover {
-  background: color-mix(in srgb, var(--panel-2) 78%, transparent);
+  background: color-mix(in srgb, var(--sidebar-item-hover) 90%, transparent);
 }
 
 .step-icon {
@@ -800,8 +845,8 @@ async function rollbackCurrentTask() {
   margin: 8px 0 0;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
-  border: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--sidebar-bg) 60%, transparent);
+  border: 1px solid var(--sidebar-border);
   font-size: 12px;
   line-height: 1.7;
   color: var(--text);
@@ -855,10 +900,7 @@ async function rollbackCurrentTask() {
 
 .toolcall-row {
   padding: 14px;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--panel-2) 78%, transparent);
   margin-bottom: 10px;
-  border: 1px solid var(--line-soft);
 }
 
 .toolcall-head {
@@ -876,24 +918,25 @@ async function rollbackCurrentTask() {
 
 .tool-status {
   font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .ts-completed {
-  background: rgba(34, 197, 94, 0.15);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
   color: var(--success);
 }
 
 .ts-failed {
-  background: rgba(239, 68, 68, 0.15);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
 }
 
 .ts-running,
 .ts-pending {
-  background: rgba(79, 70, 229, 0.15);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
 }
 
@@ -905,13 +948,14 @@ async function rollbackCurrentTask() {
 .toolcall-details summary {
   cursor: pointer;
   color: var(--muted);
-  padding: 2px 0;
+  padding: 3px 0;
 }
 
 .code-block {
   margin: 4px 0;
   padding: 10px;
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg) 60%, transparent);
+  border: 1px solid var(--sidebar-border);
   border-radius: 10px;
   font-size: 11px;
   font-family: 'Consolas', 'Monaco', monospace;
@@ -925,8 +969,8 @@ async function rollbackCurrentTask() {
 .toolcall-error {
   margin-top: 6px;
   padding: 6px 8px;
-  background: rgba(239, 68, 68, 0.1);
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-radius: 8px;
   color: var(--danger);
   font-size: 11px;
 }
@@ -940,10 +984,7 @@ async function rollbackCurrentTask() {
 /* File Changes */
 .change-card {
   padding: 14px;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--panel-2) 78%, transparent);
   margin-bottom: 10px;
-  border: 1px solid var(--line-soft);
 }
 
 .change-head {
@@ -951,7 +992,12 @@ async function rollbackCurrentTask() {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
+}
+
+.change-file-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .change-path {
@@ -965,29 +1011,30 @@ async function rollbackCurrentTask() {
 }
 
 .change-op {
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .op-create {
-  background: rgba(34, 197, 94, 0.15);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
   color: var(--success);
 }
 
 .op-modify {
-  background: rgba(245, 158, 11, 0.15);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
   color: var(--warning);
 }
 
 .change-reverted {
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
   font-size: 10px;
   font-weight: 600;
-  background: rgba(100, 116, 139, 0.15);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
   color: var(--muted);
 }
 
@@ -999,20 +1046,20 @@ async function rollbackCurrentTask() {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  color: var(--muted);
+  padding: 7px 10px;
+  border: 1px solid var(--sidebar-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--sidebar-surface) 90%, transparent);
+  color: var(--sidebar-text-soft);
   font-size: 11px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
 .restore-btn:hover:not(:disabled) {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: var(--accent);
+  background: var(--sidebar-item-hover);
+  color: var(--sidebar-text);
+  border-color: color-mix(in srgb, var(--sidebar-text-soft) 16%, var(--sidebar-border));
 }
 
 .restore-btn:disabled {
@@ -1020,12 +1067,22 @@ async function rollbackCurrentTask() {
   cursor: not-allowed;
 }
 
+.button-icon,
+.inline-loader {
+  vertical-align: -2px;
+}
+
 .log-row {
   display: flex;
   gap: 8px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 12px;
+  border-radius: 14px;
   font-size: 12px;
+  transition: background-color 120ms ease;
+}
+
+.log-row:hover {
+  background: color-mix(in srgb, var(--sidebar-item-hover) 90%, transparent);
 }
 
 .log-time {

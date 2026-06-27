@@ -27,6 +27,8 @@ export const useUiStore = defineStore('ui', () => {
   const sidebarCollapsed = ref(false)
   const drawerOpen = ref(false)
   const permissionDialogOpen = ref(false)
+  const conversationDetailOpen = ref(false)
+  const conversationDetailId = ref<string | null>(null)
   const composerDraft = ref('')
   const activeDrawerTab = ref<'steps' | 'files' | 'logs' | 'changes' | 'artifacts' | 'workspace'>('steps')
   const currentPermissionRequest = ref<PermissionRequestData | null>(null)
@@ -79,6 +81,16 @@ export const useUiStore = defineStore('ui', () => {
     currentPermissionRequest.value = null
   }
 
+  function openConversationDetail(conversationId: string) {
+    conversationDetailId.value = conversationId
+    conversationDetailOpen.value = true
+  }
+
+  function closeConversationDetail() {
+    conversationDetailOpen.value = false
+    conversationDetailId.value = null
+  }
+
   function setComposerDraft(value: string) {
     composerDraft.value = value
   }
@@ -120,6 +132,8 @@ export const useUiStore = defineStore('ui', () => {
     sidebarCollapsed,
     drawerOpen,
     permissionDialogOpen,
+    conversationDetailOpen,
+    conversationDetailId,
     composerDraft,
     activeDrawerTab,
     currentPermissionRequest,
@@ -131,6 +145,8 @@ export const useUiStore = defineStore('ui', () => {
     closeDrawer,
     openPermissionDialog,
     closePermissionDialog,
+    openConversationDetail,
+    closeConversationDetail,
     setComposerDraft,
     clearComposerDraft,
     setDrawerTab,

@@ -14,12 +14,17 @@ const uiStore = useUiStore()
 
 const pageTitle = computed(() => {
   if (route.name === 'home') return '新对话'
-  if (route.name === 'settings') return '设置'
-  if (route.name === 'conversation-detail') {
-    const conv = conversationStore.conversations.find(
-      (c) => c.id === String(route.params.id ?? conversationStore.currentConversationId ?? '')
-    )
-    return `${conv?.title ?? '会话'} · 详情`
+  if (route.name === 'settings') {
+    const sectionTitles: Record<string, string> = {
+      provider: '模型服务',
+      permissions: '任务与权限',
+      agents: '多 Agent',
+      memory: '记忆与偏好',
+      data: '本地数据',
+      stats: '使用统计',
+    }
+    const section = String(route.params.section ?? 'provider')
+    return `设置 · ${sectionTitles[section] ?? '模型服务'}`
   }
   if (route.name === 'conversation') {
     const conv = conversationStore.conversations.find(
@@ -74,10 +79,10 @@ const drawerIcon = computed(() => (uiStore.drawerOpen ? PanelRightClose : PanelR
   <header class="topbar">
     <div class="topbar-left">
       <button class="nav-btn" title="返回" @click="goBack">
-        <ArrowLeft :size="16" />
+        <ArrowLeft :size="15" />
       </button>
       <button class="nav-btn" title="前进" @click="goForward">
-        <ArrowRight :size="16" />
+        <ArrowRight :size="15" />
       </button>
       <div class="title-group">
         <div class="title-kicker">TieX</div>
@@ -85,11 +90,11 @@ const drawerIcon = computed(() => (uiStore.drawerOpen ? PanelRightClose : PanelR
       </div>
     </div>
     <div class="topbar-right">
-      <button class="nav-btn" :title="uiStore.drawerOpen ? '收起任务面板' : '打开任务面板'" @click="uiStore.toggleDrawer">
-        <component :is="drawerIcon" :size="16" />
+      <button class="nav-btn subtle-btn" :title="uiStore.drawerOpen ? '收起任务面板' : '打开任务面板'" @click="uiStore.toggleDrawer">
+        <component :is="drawerIcon" :size="15" />
       </button>
       <button class="theme-toggle" :title="themeLabel" @click="toggleTheme">
-        <component :is="themeIcon" :size="16" />
+        <component :is="themeIcon" :size="15" />
       </button>
       <div class="window-controls">
         <button class="window-btn" title="最小化" @click="minimizeWindow">
@@ -112,9 +117,9 @@ const drawerIcon = computed(() => (uiStore.drawerOpen ? PanelRightClose : PanelR
   border-bottom: 1px solid var(--sidebar-border);
   display: flex;
   align-items: center;
-  padding: 0 22px;
+  padding: 0 18px;
   background: var(--topbar-bg);
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(10px);
   -webkit-app-region: drag;
 }
 
@@ -132,28 +137,30 @@ const drawerIcon = computed(() => (uiStore.drawerOpen ? PanelRightClose : PanelR
 
 .topbar-right {
   margin-left: auto;
-  gap: 10px;
+  gap: 8px;
 }
 
 .title-group {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  margin-left: 6px;
+  margin-left: 10px;
 }
 
 .title-kicker {
   font-size: 10px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--topbar-text-soft);
   font-weight: 700;
+  line-height: 1;
 }
 
 .thread-title {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.2;
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.15;
   color: var(--topbar-text);
   white-space: nowrap;
   overflow: hidden;
@@ -163,29 +170,34 @@ const drawerIcon = computed(() => (uiStore.drawerOpen ? PanelRightClose : PanelR
 .nav-btn,
 .window-btn,
 .theme-toggle {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
   border: 1px solid transparent;
   color: var(--topbar-text-soft);
   background: transparent;
   display: grid;
   place-items: center;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
 }
 
 .nav-btn:hover,
 .window-btn:hover,
 .theme-toggle:hover {
-  background: color-mix(in srgb, var(--topbar-pill-bg) 86%, transparent);
+  background: color-mix(in srgb, var(--topbar-pill-bg) 94%, transparent);
   border-color: var(--sidebar-border);
   color: var(--topbar-text);
+}
+
+.subtle-btn {
+  opacity: 0.9;
 }
 
 .window-controls {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-left: 6px;
+  margin-left: 4px;
 }
 
 .close-btn:hover {
@@ -196,19 +208,18 @@ const drawerIcon = computed(() => (uiStore.drawerOpen ? PanelRightClose : PanelR
 
 .theme-toggle {
   color: var(--topbar-text);
-  background: color-mix(in srgb, var(--accent-soft) 65%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 24%, var(--sidebar-border));
-  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, color 0.2s ease;
+  background: color-mix(in srgb, var(--topbar-pill-bg) 90%, transparent);
+  border-color: color-mix(in srgb, var(--topbar-text-soft) 18%, var(--sidebar-border));
 }
 
 .theme-toggle:hover {
-  background: color-mix(in srgb, var(--accent-soft) 92%, transparent);
-  color: var(--accent);
-  transform: rotate(20deg);
+  background: color-mix(in srgb, var(--topbar-pill-bg) 100%, transparent);
+  color: var(--topbar-text);
+  transform: translateY(-1px);
 }
 
 [data-theme='dark'] .theme-toggle:hover {
-  color: var(--on-accent);
+  color: var(--topbar-text);
 }
 
 @media (max-width: 900px) {

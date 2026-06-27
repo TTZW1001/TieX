@@ -55,10 +55,10 @@ const pathD = computed(() => {
 
 <style scoped>
 .series-card {
-  border: 1px solid var(--line);
+  border: 1px solid var(--sidebar-border);
   border-radius: 18px;
   padding: 16px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg) 46%, transparent);
 }
 
 .series-head {
@@ -66,9 +66,9 @@ const pathD = computed(() => {
 }
 
 .series-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text-strong);
+  color: var(--sidebar-text);
 }
 
 .series-svg {
@@ -77,7 +77,7 @@ const pathD = computed(() => {
 }
 
 .series-grid {
-  stroke: color-mix(in srgb, var(--line) 90%, transparent);
+  stroke: color-mix(in srgb, var(--sidebar-border) 90%, transparent);
   stroke-width: 1;
   fill: none;
 }
@@ -96,13 +96,13 @@ const pathD = computed(() => {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  color: var(--muted);
+  color: var(--sidebar-text-muted);
   font-size: 11px;
 }
 
 .series-empty {
-  color: var(--muted);
-  font-size: 13px;
+  color: var(--sidebar-text-muted);
+  font-size: 12px;
   min-height: 220px;
   display: grid;
   place-items: center;

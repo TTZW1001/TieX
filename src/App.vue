@@ -6,6 +6,7 @@ import { useConversationStore } from '@/stores/conversation.store'
 import { useSettingsStore } from '@/stores/settings.store'
 import AppLayout from '@/layouts/AppLayout.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import ConversationDetailDialog from '@/components/ConversationDetailDialog.vue'
 
 const appStore = useAppStore()
 const uiStore = useUiStore()
@@ -28,4 +29,5 @@ onMounted(async () => {
 <template>
   <AppLayout />
   <ConfirmDialog />
+  <ConversationDetailDialog />
 </template>

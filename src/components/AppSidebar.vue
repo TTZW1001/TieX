@@ -1,18 +1,23 @@
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount, nextTick, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useUiStore } from '@/stores/ui.store'
 import { useConversationStore } from '@/stores/conversation.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
-import { useChatStore } from '@/stores/chat.store'
-import { useTaskStore } from '@/stores/task.store'
+import { useSettingsStore } from '@/stores/settings.store'
 import type { ConversationInfo } from '@/types/global'
 import {
+  ArrowLeft,
+  Bot,
+  Database,
+  FolderCog,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Settings,
   FolderOpen,
+  KeyRound,
+  MemoryStick,
   Search,
   MoreHorizontal,
   Pencil,
@@ -20,19 +25,21 @@ import {
   Info,
   Check,
   X,
+  ChevronDown,
+  Users,
 } from 'lucide-vue-next'
 
 const appIconUrl = new URL('../../icon.png', import.meta.url).href
 const router = useRouter()
+const route = useRoute()
 const uiStore = useUiStore()
 const conversationStore = useConversationStore()
 const workspaceStore = useWorkspaceStore()
-const chatStore = useChatStore()
-const taskStore = useTaskStore()
+const settingsStore = useSettingsStore()
 
 const searchQuery = ref('')
-
-type ConversationTone = 'running' | 'ready' | 'warning' | 'danger' | 'idle'
+const collapsedGroups = ref<Record<string, boolean>>({})
+const searchInputRef = ref<HTMLInputElement | null>(null)
 
 const groupedConversations = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
@@ -81,22 +88,30 @@ const groupedConversations = computed(() => {
 })
 
 const hasSearchResults = computed(() => groupedConversations.value.length > 0)
+const displayUserName = computed(() => settingsStore.userDisplayName.trim() || 'User')
+const displayUserInitial = computed(() => displayUserName.value.slice(0, 1).toUpperCase())
+const activeConversationId = computed(() => conversationStore.currentConversationId)
+const isSettingsRoute = computed(() => route.name === 'settings')
+const activeSettingsSection = computed(() => String(route.params.section ?? 'provider'))
 
-const currentConversationTone = computed<ConversationTone>(() => {
-  const taskStatus = taskStore.currentTask?.status
+const settingsSections = [
+  { id: 'provider', label: '模型服务', icon: Bot },
+  { id: 'permissions', label: '任务与权限', icon: KeyRound },
+  { id: 'agents', label: '多 Agent', icon: Users },
+  { id: 'memory', label: '记忆偏好', icon: MemoryStick },
+  { id: 'data', label: '本地数据', icon: FolderCog },
+  { id: 'stats', label: '数据统计', icon: Database },
+] as const
 
-  if (taskStore.isRunning || chatStore.isStreaming) return 'running'
-  if (taskStatus === 'failed') return 'danger'
-  if (taskStatus === 'stopped' || taskStatus === 'waiting_permission') return 'warning'
-  if (conversationStore.currentConversationId) return 'ready'
-  return 'idle'
-})
+function isGroupCollapsed(groupId: string): boolean {
+  return collapsedGroups.value[groupId] ?? false
+}
 
-function getConversationTone(conv: ConversationInfo): ConversationTone {
-  if (conv.id === conversationStore.currentConversationId) {
-    return currentConversationTone.value
+function toggleGroup(groupId: string): void {
+  collapsedGroups.value = {
+    ...collapsedGroups.value,
+    [groupId]: !isGroupCollapsed(groupId),
   }
-  return 'idle'
 }
 
 // —— 会话列表的更多菜单状态 ——
@@ -106,6 +121,7 @@ const renameValue = ref('')
 const renameInputRef = ref<HTMLInputElement | null>(null)
 
 function goHome() {
+  uiStore.closeConversationDetail()
   conversationStore.setCurrentConversation(null)
   router.push('/home')
 }
@@ -117,34 +133,45 @@ async function openConversation(id: string) {
     openMenuId.value = null
     return
   }
+  uiStore.closeConversationDetail()
   conversationStore.setCurrentConversation(id)
   router.push(`/conversation/${id}`)
 }
 
 async function createNewConversation() {
+  uiStore.closeConversationDetail()
   conversationStore.setCurrentConversation(null)
   if (router.currentRoute.value.path !== '/home') {
     await router.push('/home')
   }
 }
 
+async function openSearchFromCollapsed() {
+  if (isSettingsRoute.value) return
+  if (!uiStore.sidebarCollapsed) {
+    searchInputRef.value?.focus()
+    return
+  }
+  uiStore.toggleSidebar()
+  await nextTick()
+  searchInputRef.value?.focus()
+}
+
 function goSettings() {
+  uiStore.closeConversationDetail()
   router.push('/settings')
 }
 
-function formatTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
+async function returnFromSettings() {
+  uiStore.closeConversationDetail()
+  await router.push('/home')
+}
 
-  if (diffMins < 1) return '刚刚'
-  if (diffMins < 60) return `${diffMins} 分`
-  if (diffHours < 24) return `${diffHours} 小时`
-  if (diffDays < 7) return `${diffDays} 天`
-  return date.toLocaleDateString('zh-CN')
+function openSettingsSection(sectionId: string) {
+  router.push({
+    name: 'settings',
+    params: { section: sectionId },
+  })
 }
 
 // —— 更多菜单：展开 / 收起 ——
@@ -252,7 +279,7 @@ async function confirmDelete(event: MouseEvent, conv: { id: string; title: strin
 function openConversationDetail(event: MouseEvent, conv: { id: string }) {
   event.stopPropagation()
   openMenuId.value = null
-  router.push(`/conversation/${conv.id}/detail`)
+  uiStore.openConversationDetail(conv.id)
 }
 
 // 点击外部关闭菜单
@@ -279,61 +306,124 @@ onMounted(() => {
 
 <template>
   <aside class="sidebar">
-    <div class="brand">
-      <button class="brand-logo" @click="goHome" title="返回首页">
-        <img :src="appIconUrl" alt="TieX logo" />
-      </button>
-      <div class="brand-copy" v-if="!uiStore.sidebarCollapsed">
-        <div class="brand-title">TieX</div>
-        <div class="brand-subtitle">Local Agent Workspace</div>
+    <div class="sidebar-header" :class="{ collapsed: uiStore.sidebarCollapsed }">
+      <div class="brand-shell" :class="{ hidden: uiStore.sidebarCollapsed }" :aria-hidden="uiStore.sidebarCollapsed">
+        <button class="brand-logo" @click="goHome" title="返回首页">
+          <img :src="appIconUrl" alt="TieX logo" />
+        </button>
+        <div class="brand-copy">
+          <div class="brand-title">TieX</div>
+        </div>
       </div>
-      <button class="collapse-btn" @click="uiStore.toggleSidebar" :title="uiStore.sidebarCollapsed ? '展开' : '收起'">
-        <PanelLeftClose v-if="!uiStore.sidebarCollapsed" :size="18" />
-        <PanelLeftOpen v-else :size="18" />
+      <button class="collapse-btn" @click="uiStore.toggleSidebar" :title="uiStore.sidebarCollapsed ? '展开侧栏' : '收起侧栏'">
+        <PanelLeftClose v-if="!uiStore.sidebarCollapsed" :size="17" />
+        <PanelLeftOpen v-else :size="17" />
       </button>
     </div>
 
-    <div class="sidebar-main">
-      <button class="nav-item primary" @click="createNewConversation">
-        <Plus :size="18" />
-        <span v-if="!uiStore.sidebarCollapsed">新对话</span>
+    <div class="sidebar-actions">
+      <button
+        v-if="!isSettingsRoute"
+        class="nav-row nav-row-primary"
+        :class="{ collapsed: uiStore.sidebarCollapsed }"
+        @click="createNewConversation"
+        :title="uiStore.sidebarCollapsed ? '新对话' : undefined"
+      >
+        <span class="nav-icon nav-icon-plus">
+          <Plus :size="12" />
+        </span>
+        <span class="nav-label" :class="{ hidden: uiStore.sidebarCollapsed }">新对话</span>
       </button>
 
-      <template v-if="!uiStore.sidebarCollapsed">
-        <div class="search-shell">
-          <Search :size="16" class="search-icon" />
+      <button
+        v-else
+        class="nav-row"
+        :class="{ collapsed: uiStore.sidebarCollapsed }"
+        @click="returnFromSettings"
+        :title="uiStore.sidebarCollapsed ? '返回应用' : undefined"
+      >
+        <span class="nav-icon">
+          <ArrowLeft :size="15" />
+        </span>
+        <span class="nav-label" :class="{ hidden: uiStore.sidebarCollapsed }">返回应用</span>
+      </button>
+
+      <div v-if="!isSettingsRoute" class="search-slot" :class="{ collapsed: uiStore.sidebarCollapsed }">
+        <button
+          class="nav-row nav-row-icon-only search-collapsed-btn"
+          :class="{ active: uiStore.sidebarCollapsed }"
+          title="搜索"
+          @click="openSearchFromCollapsed"
+        >
+          <span class="nav-icon">
+            <Search :size="15" />
+          </span>
+        </button>
+
+        <div class="search-shell" :class="{ hidden: uiStore.sidebarCollapsed }">
+          <Search :size="15" class="search-icon" />
           <input
+            ref="searchInputRef"
             v-model="searchQuery"
             class="search-input"
             type="text"
-            placeholder="搜索工作区或会话"
-            aria-label="搜索工作区或会话"
+            placeholder="搜索"
+            aria-label="搜索"
+            :tabindex="uiStore.sidebarCollapsed ? -1 : 0"
           />
         </div>
+      </div>
+    </div>
 
-        <div v-if="groupedConversations.length > 0" class="group-list">
+    <div class="sidebar-main" :class="{ collapsed: uiStore.sidebarCollapsed }">
+      <div
+        class="sidebar-main-inner"
+        :class="{ hidden: uiStore.sidebarCollapsed && !isSettingsRoute }"
+        :aria-hidden="uiStore.sidebarCollapsed && !isSettingsRoute"
+      >
+        <div v-if="isSettingsRoute" class="settings-group-list" :class="{ collapsed: uiStore.sidebarCollapsed }">
+          <div class="settings-group-title" :class="{ hidden: uiStore.sidebarCollapsed }">设置</div>
+          <button
+            v-for="section in settingsSections"
+            v-show="section.id !== 'stats' || settingsStore.statsOverview"
+            :key="section.id"
+            class="settings-nav-item"
+            :class="{ active: activeSettingsSection === section.id, collapsed: uiStore.sidebarCollapsed }"
+            @click="openSettingsSection(section.id)"
+            :title="uiStore.sidebarCollapsed ? section.label : undefined"
+          >
+            <span class="nav-icon">
+              <component :is="section.icon" :size="15" />
+            </span>
+            <span class="nav-label" :class="{ hidden: uiStore.sidebarCollapsed }">{{ section.label }}</span>
+          </button>
+        </div>
+
+        <div v-else-if="groupedConversations.length > 0" class="group-list">
           <section v-for="group in groupedConversations" :key="group.id" class="workspace-group">
-            <div class="workspace-group-head">
-              <div class="workspace-group-title">
-                <FolderOpen :size="15" />
-                <span>{{ group.name }}</span>
+            <button class="workspace-group-head" @click="toggleGroup(group.id)">
+              <div class="workspace-group-copy">
+                <span class="workspace-group-title">
+                  <FolderOpen :size="14" />
+                  <span>{{ group.name }}</span>
+                </span>
+                <div class="workspace-group-path">{{ group.path }}</div>
               </div>
-              <div class="workspace-group-path">{{ group.path }}</div>
-            </div>
+              <ChevronDown :size="14" class="workspace-group-chevron" :class="{ collapsed: isGroupCollapsed(group.id) }" />
+            </button>
 
-            <div
-              v-for="conv in group.conversations"
-              :key="conv.id"
-              class="conversation"
-              :class="{
-                active: conversationStore.currentConversationId === conv.id,
-                'menu-open': openMenuId === conv.id,
-                renaming: renamingId === conv.id,
-              }"
-              @click="openConversation(conv.id)"
-            >
-              <div class="conversation-dot" :class="`is-${getConversationTone(conv)}`"></div>
-              <div class="conversation-meta">
+            <div v-show="!isGroupCollapsed(group.id)" class="workspace-group-body">
+              <div
+                v-for="conv in group.conversations"
+                :key="conv.id"
+                class="conversation"
+                :class="{
+                  active: activeConversationId === conv.id,
+                  'menu-open': openMenuId === conv.id,
+                  renaming: renamingId === conv.id,
+                }"
+                @click="openConversation(conv.id)"
+              >
                 <template v-if="renamingId === conv.id">
                   <div class="conversation-rename">
                     <input
@@ -349,8 +439,8 @@ onMounted(() => {
                     />
                     <div class="conversation-rename-actions">
                       <button
-                        class="rename-btn"
-                        :class="{ primary: true, loading: savingRenameId === conv.id }"
+                        class="rename-btn rename-btn-primary"
+                        :class="{ loading: savingRenameId === conv.id }"
                         :disabled="savingRenameId === conv.id"
                         title="保存（Enter）"
                         @click.stop="commitRename"
@@ -369,55 +459,56 @@ onMounted(() => {
                     <div v-if="renameError" class="conversation-rename-error">{{ renameError }}</div>
                   </div>
                 </template>
+
                 <template v-else>
                   <div class="conversation-title-row">
-                    <div class="conversation-title">{{ conv.title }}</div>
+                    <span class="conversation-title">{{ conv.title }}</span>
                     <span v-if="conv.parent_conversation_id" class="branch-badge">分支</span>
                   </div>
-                  <div class="conversation-time">{{ formatTime(conv.updated_at) }}</div>
+
+                  <button class="conversation-more" title="更多" @click="toggleMenu($event, conv.id)">
+                    <MoreHorizontal :size="15" />
+                  </button>
+
+                  <div v-if="openMenuId === conv.id" class="conversation-menu" @click.stop>
+                    <button class="menu-item" @click="openConversationDetail($event, conv)">
+                      <Info :size="14" />
+                      <span>详细信息</span>
+                    </button>
+                    <button class="menu-item" @click="startRename($event, conv)">
+                      <Pencil :size="14" />
+                      <span>重命名</span>
+                    </button>
+                    <button class="menu-item danger" @click="confirmDelete($event, conv)">
+                      <Trash2 :size="14" />
+                      <span>删除</span>
+                    </button>
+                  </div>
                 </template>
-              </div>
-
-              <button
-                v-if="renamingId !== conv.id"
-                class="conversation-more"
-                title="更多"
-                @click="toggleMenu($event, conv.id)"
-              >
-                <MoreHorizontal :size="16" />
-              </button>
-
-              <div v-if="openMenuId === conv.id" class="conversation-menu" @click.stop>
-                <button class="menu-item" @click="openConversationDetail($event, conv)">
-                  <Info :size="14" />
-                  <span>详细信息</span>
-                </button>
-                <button class="menu-item" @click="startRename($event, conv)">
-                  <Pencil :size="14" />
-                  <span>重命名</span>
-                </button>
-                <button class="menu-item danger" @click="confirmDelete($event, conv)">
-                  <Trash2 :size="14" />
-                  <span>删除</span>
-                </button>
               </div>
             </div>
           </section>
         </div>
 
         <div v-else-if="searchQuery && !hasSearchResults" class="sidebar-empty">
-          没有匹配的工作区或会话
+          没有匹配的工作目录或会话
         </div>
         <div v-else class="sidebar-empty">
           还没有历史会话，先开始一个新对话吧。
         </div>
-      </template>
+      </div>
     </div>
 
     <div class="sidebar-footer">
-      <button class="settings-row" @click="goSettings">
-        <Settings :size="18" />
-        <span v-if="!uiStore.sidebarCollapsed">设置</span>
+      <button class="user-row" @click="goSettings" :title="uiStore.sidebarCollapsed ? '设置' : undefined">
+        <div class="user-avatar">{{ displayUserInitial }}</div>
+        <div class="user-copy" :class="{ hidden: uiStore.sidebarCollapsed }">
+          <span class="user-name">{{ displayUserName }}</span>
+          <span class="user-plan">本地工作台</span>
+        </div>
+        <span class="user-settings" :class="{ hidden: uiStore.sidebarCollapsed }">
+          <Settings :size="15" />
+        </span>
       </button>
     </div>
   </aside>
@@ -425,30 +516,55 @@ onMounted(() => {
 
 <style scoped>
 .sidebar {
+  position: relative;
   border-right: 1px solid var(--sidebar-border);
   background: var(--sidebar-bg);
   display: flex;
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
-  transition: all 0.25s ease;
+  transition: background-color 180ms ease, border-color 180ms ease;
   color: var(--sidebar-text);
 }
 
-.brand {
-  height: 74px;
+.sidebar-header {
+  height: var(--topbar-height);
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 14px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 8px;
   border-bottom: 1px solid var(--sidebar-divider);
   -webkit-app-region: drag;
 }
 
+.sidebar-header.collapsed {
+  justify-content: flex-end;
+}
+
+.brand-shell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+  transition:
+    width var(--duration-base) var(--ease-out),
+    opacity var(--duration-fast) ease,
+    transform var(--duration-base) var(--ease-out);
+}
+
+.brand-shell.hidden {
+  width: 0;
+  opacity: 0;
+  transform: translateX(-6px);
+  pointer-events: none;
+}
+
 .brand-logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
   background: var(--sidebar-logo-bg);
@@ -465,36 +581,27 @@ onMounted(() => {
   object-fit: cover;
 }
 
-.brand-copy {
-  min-width: 0;
-}
-
 .brand-title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
   white-space: nowrap;
   color: var(--sidebar-text);
 }
 
-.brand-subtitle {
-  margin-top: 4px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--sidebar-text-muted);
-  font-weight: 600;
-  opacity: 1;
+.brand-copy {
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .collapse-btn {
-  margin-left: auto;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
   color: var(--sidebar-text-soft);
   -webkit-app-region: no-drag;
   display: grid;
   place-items: center;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .collapse-btn:hover {
@@ -502,125 +609,312 @@ onMounted(() => {
   color: var(--sidebar-text);
 }
 
-.sidebar-main {
-  padding: 12px 10px 16px;
-  overflow: auto;
-  flex: 1;
+.sidebar-actions {
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  overflow: hidden;
 }
 
-.nav-item {
+.nav-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  min-height: 48px;
-  padding: 0 14px;
-  border-radius: 14px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
   color: var(--sidebar-text);
   text-align: left;
-  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  transition:
+    background-color 90ms ease,
+    color 90ms ease,
+    padding var(--duration-base) var(--ease-out),
+    min-height var(--duration-base) var(--ease-out);
 }
 
-.nav-item.primary {
+.nav-row.collapsed {
+  gap: 0;
+  justify-content: center;
+  padding: 0;
+}
+
+.nav-row:hover {
+  background: var(--sidebar-item-hover);
+}
+
+.nav-row-primary {
   background: var(--sidebar-item-active);
 }
 
-.nav-item.primary:hover {
-  background: var(--sidebar-item-hover);
+.nav-row-icon-only {
+  justify-content: center;
+  padding: 0;
+  background: transparent;
 }
 
-.settings-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 42px;
-  padding: 0 14px;
-  border-radius: 12px;
-  color: var(--sidebar-text-soft);
-  text-align: left;
-  font-weight: 600;
+.nav-label {
+  white-space: nowrap;
+  transition:
+    opacity var(--duration-fast) ease,
+    transform var(--duration-base) var(--ease-out),
+    width var(--duration-base) var(--ease-out);
 }
 
-.settings-row:hover {
-  background: var(--sidebar-item-hover);
-  color: var(--sidebar-text);
+.nav-label.hidden {
+  width: 0;
+  opacity: 0;
+  transform: translateX(-6px);
+  pointer-events: none;
+}
+
+.nav-icon {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.nav-icon-plus {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sidebar-text) 10%, transparent);
+}
+
+.search-slot {
+  position: relative;
+  min-height: 36px;
+}
+
+.search-slot.collapsed {
+  min-height: 36px;
+}
+
+.search-collapsed-btn {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: scale(0.92);
+  pointer-events: none;
+  transition:
+    opacity var(--duration-fast) ease,
+    transform var(--duration-base) var(--ease-out);
+}
+
+.search-collapsed-btn.active {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
 }
 
 .search-shell {
   position: relative;
   display: flex;
   align-items: center;
-  margin: 14px 0 12px;
   border: 1px solid var(--sidebar-border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  border-radius: 10px;
+  background: transparent;
+  min-height: 36px;
+  transition:
+    opacity var(--duration-fast) ease,
+    transform var(--duration-base) var(--ease-out),
+    border-color var(--duration-fast) ease;
+}
+
+.search-shell.hidden {
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
 }
 
 .search-shell:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--sidebar-border));
-  box-shadow: var(--focus-ring);
+  background: color-mix(in srgb, var(--sidebar-item-hover) 50%, transparent);
 }
 
 .search-icon {
-  margin-left: 14px;
+  margin-left: 12px;
   color: var(--sidebar-text-muted);
 }
 
 .search-input {
   width: 100%;
-  min-height: 42px;
-  padding: 0 14px 0 10px;
+  min-height: 34px;
+  padding: 0 12px 0 8px;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--sidebar-text);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .search-input::placeholder {
   color: var(--sidebar-text-muted);
 }
 
-.group-list {
-  display: grid;
-  gap: 14px;
+.sidebar-main {
+  padding: 4px 8px 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
 }
 
-.workspace-group {
+.sidebar-main.collapsed {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar-main-inner {
+  transition:
+    opacity var(--duration-fast) ease,
+    transform var(--duration-base) var(--ease-out);
+}
+
+.sidebar-main-inner.hidden {
+  opacity: 0;
+  transform: translateX(-8px);
+  pointer-events: none;
+}
+
+.settings-group-list {
   display: grid;
   gap: 6px;
 }
 
+.settings-group-list.collapsed {
+  gap: 8px;
+}
+
+.settings-group-title {
+  padding: 6px 10px 8px;
+  color: var(--sidebar-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.settings-group-title.hidden {
+  display: none;
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: var(--sidebar-text-soft);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  overflow: hidden;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.settings-nav-item.collapsed {
+  gap: 0;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0;
+  border-radius: 12px;
+}
+
+.settings-nav-item:hover {
+  background: var(--sidebar-item-hover);
+  color: var(--sidebar-text);
+}
+
+.settings-nav-item.active {
+  background: color-mix(in srgb, var(--sidebar-text) 7%, transparent);
+  color: var(--sidebar-text);
+}
+
+.group-list {
+  display: grid;
+  gap: 10px;
+}
+
+.workspace-group {
+  display: grid;
+  gap: 2px;
+}
+
 .workspace-group-head {
-  padding: 10px 12px 6px;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--sidebar-text-muted);
+  border-radius: 12px;
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-surface) 90%, transparent);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.workspace-group-head:hover {
+  background: var(--sidebar-item-hover);
+  color: var(--sidebar-text);
+}
+
+.workspace-group-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  flex: 1;
 }
 
 .workspace-group-title {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--sidebar-text);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.workspace-group-chevron {
+  transition: transform 180ms ease;
+}
+
+.workspace-group-chevron.collapsed {
+  transform: rotate(-90deg);
 }
 
 .workspace-group-path {
-  margin-top: 4px;
-  padding-left: 24px;
   color: var(--sidebar-text-muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
+  word-break: break-all;
+  text-transform: none;
+  letter-spacing: 0;
+  padding-left: 22px;
+}
+
+.workspace-group-body {
+  display: grid;
+  gap: 1px;
+  padding-top: 4px;
 }
 
 .conversation {
   position: relative;
   display: flex;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: 14px;
-  align-items: flex-start;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px 0 12px;
+  border-radius: 10px;
   cursor: pointer;
+  transition: background-color 90ms ease, color 90ms ease;
 }
 
 .conversation:hover,
@@ -629,79 +923,35 @@ onMounted(() => {
   background: var(--sidebar-item-active);
 }
 
-.conversation-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-top: 7px;
-  background: var(--muted-soft);
-  flex: 0 0 auto;
-  transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
-}
-
-.conversation-dot.is-running {
-  background: var(--accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-.conversation-dot.is-ready {
-  background: var(--success-strong);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 18%, transparent);
-}
-
-.conversation-dot.is-warning {
-  background: var(--warning-strong);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--warning) 18%, transparent);
-}
-
-.conversation-dot.is-danger {
-  background: var(--danger-strong);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 18%, transparent);
-}
-
-.conversation-dot.is-idle {
-  background: var(--muted-soft);
-  box-shadow: none;
-}
-
-.conversation-meta {
-  min-width: 0;
-  flex: 1;
-}
-
 .conversation-title-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  width: 100%;
 }
 
 .conversation-title {
-  font-size: 14px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.3;
   color: var(--sidebar-text);
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
 }
 
 .branch-badge {
-  border: 1px solid var(--sidebar-border);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: color-mix(in srgb, var(--accent) 88%, var(--sidebar-text));
   border-radius: 999px;
-  padding: 2px 7px;
-  font-size: 10px;
+  padding: 2px 6px;
+  font-size: 9px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   flex: 0 0 auto;
-}
-
-.conversation-time {
-  margin-top: 3px;
-  font-size: 11px;
-  color: var(--sidebar-text-muted);
-  font-weight: 500;
 }
 
 .conversation-rename {
@@ -713,16 +963,16 @@ onMounted(() => {
 
 .conversation-rename-input {
   width: 100%;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--sidebar-text);
-  background: var(--panel);
-  border: 1.5px solid var(--accent);
+  background: var(--sidebar-surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--sidebar-border));
   border-radius: 8px;
   padding: 6px 8px;
   outline: none;
   font-family: inherit;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .conversation-rename-input:disabled {
@@ -744,7 +994,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   border-radius: 7px;
-  background: var(--sidebar-pill-bg);
+  background: color-mix(in srgb, var(--sidebar-surface) 84%, transparent);
   border: 1px solid var(--sidebar-border);
   cursor: pointer;
   color: var(--sidebar-text-soft);
@@ -756,14 +1006,14 @@ onMounted(() => {
   color: var(--sidebar-text);
 }
 
-.rename-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+.rename-btn-primary {
+  background: var(--sidebar-text);
+  border-color: var(--sidebar-text);
   color: var(--on-accent, #fff);
 }
 
-.rename-btn.primary:hover:not(:disabled) {
-  filter: brightness(1.08);
+.rename-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.04);
 }
 
 .rename-btn:disabled {
@@ -803,19 +1053,19 @@ onMounted(() => {
 
 .conversation-more {
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   border: none;
   cursor: pointer;
   color: var(--sidebar-text-muted);
   opacity: 0;
   transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
-  margin-top: 2px;
+  margin-left: 6px;
 }
 
 .conversation:hover .conversation-more,
@@ -831,15 +1081,15 @@ onMounted(() => {
 
 .conversation-menu {
   position: absolute;
-  top: 38px;
-  right: 10px;
+  top: 28px;
+  right: 0;
   z-index: 20;
   min-width: 140px;
   padding: 6px;
-  border-radius: 12px;
-  background: var(--panel);
+  border-radius: 10px;
+  background: var(--sidebar-surface);
   border: 1px solid var(--sidebar-border);
-  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 18px 32px -16px rgba(0, 0, 0, 0.28);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -875,13 +1125,104 @@ onMounted(() => {
 }
 
 .sidebar-footer {
-  padding: 10px;
+  padding: 8px;
   border-top: 1px solid var(--sidebar-divider);
+  overflow: hidden;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px;
+  border-radius: 12px;
+  overflow: hidden;
+  transition:
+    background-color 120ms ease,
+    padding var(--duration-base) var(--ease-out);
+}
+
+.user-row:hover {
+  background: var(--sidebar-item-hover);
+}
+
+.user-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--sidebar-text);
+  color: var(--sidebar-bg-solid);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.user-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  white-space: nowrap;
+  transition:
+    opacity var(--duration-fast) ease,
+    transform var(--duration-base) var(--ease-out),
+    width var(--duration-base) var(--ease-out);
+}
+
+.user-copy.hidden {
+  width: 0;
+  opacity: 0;
+  transform: translateX(-6px);
+  pointer-events: none;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sidebar-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-plan {
+  font-size: 11px;
+  color: var(--sidebar-text-muted);
+}
+
+.user-settings {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--sidebar-text-muted);
+  flex: 0 0 auto;
+  transition:
+    opacity var(--duration-fast) ease,
+    transform var(--duration-base) var(--ease-out);
+}
+
+.user-settings.hidden {
+  opacity: 0;
+  transform: translateX(6px);
+  pointer-events: none;
+}
+
+.user-row:hover .user-settings {
+  background: color-mix(in srgb, var(--sidebar-item-hover) 80%, transparent);
+  color: var(--sidebar-text);
 }
 
 .sidebar-empty {
-  padding: 18px 14px;
+  padding: 18px 10px;
   color: var(--sidebar-text-muted);
   font-size: 13px;
+  line-height: 1.6;
 }
 </style>
