@@ -16,6 +16,7 @@ import { useUiStore } from '@/stores/ui.store'
 import CommandOutput from './CommandOutput.vue'
 import ArtifactCard from './ArtifactCard.vue'
 import type { PermissionDecision, PermissionRequestInfo } from '@/types/global'
+import { getManualPlanDraft } from '@/utils/permission-display'
 
 const taskStore = useTaskStore()
 const uiStore = useUiStore()
@@ -233,11 +234,11 @@ function defaultExpanded(entry: ActivityEntry): boolean {
   return (entry.kind === 'permission' && entry.status === 'waiting') || entry.kind === 'command'
 }
 
-async function submitPermissionDecision(request: PermissionRequestInfo, decision: PermissionDecision) {
+async function submitPermissionDecision(request: PermissionRequestInfo, decision: PermissionDecision, decisionReason?: string | null) {
   if (processingPermissionId.value) return
   processingPermissionId.value = request.id
   try {
-    await window.tiex.permission.decide(request.id, decision)
+    await window.tiex.permission.decide(request.id, decision, decisionReason)
     if (uiStore.currentPermissionRequest?.requestId === request.id) {
       uiStore.closePermissionDialog()
     }
@@ -250,9 +251,11 @@ async function submitPermissionDecision(request: PermissionRequestInfo, decision
 }
 
 async function handleManualPlan(request: PermissionRequestInfo) {
-  const target = request.target ? `\n目标：${request.target}` : ''
-  const reason = request.reason ? `\n原因：${request.reason}` : ''
-  uiStore.setComposerDraft(`不要直接执行这个操作，我会手动处理。请改为给我一个更安全的人工处理方案和逐步说明。${target}${reason}`)
+  uiStore.setComposerDraft(getManualPlanDraft({
+    reason: request.reason,
+    target: request.target,
+    impactSummary: request.impact_summary,
+  }), 'manual_plan')
   await submitPermissionDecision(request, 'rejected')
 }
 </script>

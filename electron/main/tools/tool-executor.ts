@@ -180,9 +180,10 @@ export function createPermissionRequest(
  */
 export function handlePermissionDecision(
   requestId: string,
-  decision: PermissionDecision
+  decision: PermissionDecision,
+  decisionReason?: string | null,
 ): void {
-  permissionService.handleDecision(requestId, decision)
+  permissionService.handleDecision(requestId, decision, decisionReason)
 
   const request = permissionService.getRequest(requestId)
   if (request) {
@@ -191,6 +192,7 @@ export function handlePermissionDecision(
       taskId: request.task_id,
       requestId,
       decision,
+      decisionReason: request.decision_reason ?? undefined,
     })
   }
 }

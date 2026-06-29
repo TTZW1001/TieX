@@ -627,6 +627,18 @@ async function inspectTask(taskId: string) {
   uiStore.openDrawer()
 }
 
+async function inspectTaskContext(taskId: string) {
+  await taskStore.setCurrentTask(taskId)
+  uiStore.setDrawerTab('context')
+  uiStore.openDrawer()
+}
+
+async function inspectTaskTab(taskId: string, tab: 'steps' | 'files' | 'changes' | 'permissions' | 'artifacts') {
+  await taskStore.setCurrentTask(taskId)
+  uiStore.setDrawerTab(tab)
+  uiStore.openDrawer()
+}
+
 function asTaskBlock(item: FeedItem): TaskBlockFeedItem {
   return item as TaskBlockFeedItem
 }
@@ -683,6 +695,8 @@ function asTaskBlock(item: FeedItem): TaskBlockFeedItem {
             :running="asTaskBlock(item).running"
             :agent-badges="asTaskBlock(item).agentBadges"
             @inspect="inspectTask"
+            @inspect-context="inspectTaskContext"
+            @inspect-tab="inspectTaskTab"
           />
         </template>
 

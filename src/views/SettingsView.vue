@@ -5,6 +5,11 @@ import { useSettingsStore } from '@/stores/settings.store'
 import { useUiStore } from '@/stores/ui.store'
 import UsageDonutChart from '@/components/UsageDonutChart.vue'
 import TokenSeriesChart from '@/components/TokenSeriesChart.vue'
+import {
+  getProviderCapabilities,
+  getProviderCapabilityBadges,
+  getProviderCapabilitySummary,
+} from '@/utils/provider-capabilities'
 
 const route = useRoute()
 const router = useRouter()
@@ -70,6 +75,22 @@ const modelOptions = computed(() => {
   }
   return ['deepseek-v4-flash', 'deepseek-v4-pro']
 })
+
+const activeProviderCapabilities = computed(() => {
+  return getProviderCapabilities(settingsStore.providerType, settingsStore.modelName)
+})
+
+const activeProviderCapabilityBadges = computed(() => {
+  return getProviderCapabilityBadges(settingsStore.providerType, settingsStore.modelName)
+})
+
+function providerCapabilityBadges(providerType: string, modelName: string) {
+  return getProviderCapabilityBadges(providerType, modelName)
+}
+
+function providerCapabilitySummary(providerType: string, modelName: string) {
+  return getProviderCapabilitySummary(providerType, modelName)
+}
 
 const activeStatsSeries = computed(() => {
   return settingsStore.statsOverview?.token_series?.[statsRange.value] ?? []
@@ -250,6 +271,16 @@ onBeforeUnmount(() => {
                         <span v-if="item.is_default === 1" class="default-pill">默认</span>
                       </div>
                       <div class="provider-item-sub">{{ item.provider_type }} · {{ item.model_name }}</div>
+                      <div class="capability-strip compact">
+                        <span
+                          v-for="badge in providerCapabilityBadges(item.provider_type, item.model_name)"
+                          :key="badge.key"
+                          class="capability-pill"
+                          :class="{ off: !badge.enabled }"
+                        >
+                          {{ badge.label }}
+                        </span>
+                      </div>
                       <div class="provider-item-sub">{{ item.base_url }}</div>
                     </div>
                   </button>
@@ -288,6 +319,23 @@ onBeforeUnmount(() => {
                       <select v-model="settingsStore.modelName">
                         <option v-for="model in modelOptions" :key="model" :value="model">{{ model }}</option>
                       </select>
+                      <div class="model-capability-panel">
+                        <div class="capability-panel-head">
+                          <span>{{ providerCapabilitySummary(settingsStore.providerType, settingsStore.modelName) }}</span>
+                          <b>{{ activeProviderCapabilities.contextLabel }}</b>
+                        </div>
+                        <div class="capability-strip">
+                          <span
+                            v-for="badge in activeProviderCapabilityBadges"
+                            :key="badge.key"
+                            class="capability-pill"
+                            :class="{ off: !badge.enabled }"
+                          >
+                            {{ badge.label }}
+                          </span>
+                        </div>
+                        <div class="capability-note">{{ activeProviderCapabilities.notes[0] }}</div>
+                      </div>
                     </div>
                   </div>
                   <div class="settings-row row-field">
@@ -494,7 +542,7 @@ onBeforeUnmount(() => {
                         <select v-model="settingsStore.agentProviderBindings[profile.role as 'responder' | 'implementation' | 'research' | 'memory']">
                           <option :value="null">跟随当前会话 Provider</option>
                           <option v-for="item in settingsStore.providers" :key="item.id" :value="item.id">
-                            {{ item.name }} · {{ item.model_name }}
+                            {{ item.name }} · {{ item.model_name }} · {{ providerCapabilitySummary(item.provider_type, item.model_name) }}
                           </option>
                         </select>
                       </div>
@@ -855,6 +903,74 @@ onBeforeUnmount(() => {
   color: var(--muted);
   line-height: 1.45;
   word-break: break-all;
+}
+
+.capability-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.capability-strip.compact {
+  margin-top: 8px;
+}
+
+.capability-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--success) 22%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+  color: var(--success-strong);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.capability-pill.off {
+  border-color: color-mix(in srgb, var(--sidebar-border) 78%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg) 38%, transparent);
+  color: var(--muted);
+}
+
+.model-capability-panel {
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--settings-stroke-1) 80%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--settings-surface-2) 76%, transparent);
+}
+
+.capability-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.capability-panel-head span {
+  min-width: 0;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.capability-panel-head b {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.capability-note {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .default-pill {

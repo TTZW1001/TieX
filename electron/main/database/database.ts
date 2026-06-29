@@ -633,6 +633,9 @@ CREATE TABLE IF NOT EXISTS command_sessions (
 CREATE INDEX IF NOT EXISTS idx_command_sessions_task ON command_sessions(task_id);
 CREATE INDEX IF NOT EXISTS idx_command_sessions_status ON command_sessions(status);
 `,
+  '012_add_permission_decision_reason': `
+ALTER TABLE permission_requests ADD COLUMN decision_reason TEXT;
+`,
 }
 
 function runMigrations(database: Database.Database): void {

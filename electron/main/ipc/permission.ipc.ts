@@ -16,7 +16,7 @@ export function registerPermissionIpc(): void {
   // 用户做出权限决策
   ipcMain.handle(
     IPC_PERMISSION_DECIDE,
-    async (_event, requestId: string, decision: PermissionDecision) => {
+    async (_event, requestId: string, decision: PermissionDecision, decisionReason?: string | null) => {
       if (!requestId || typeof requestId !== 'string') {
         throw new Error('requestId 不能为空')
       }
@@ -25,7 +25,7 @@ export function registerPermissionIpc(): void {
       }
 
       // 处理权限决策（更新数据库 + 推送事件）
-      handlePermissionDecision(requestId, decision)
+      handlePermissionDecision(requestId, decision, decision === 'rejected' ? decisionReason : null)
 
       // 解除 Agent Runtime 的等待
       const approved = decision !== 'rejected'

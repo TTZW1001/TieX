@@ -9,6 +9,7 @@ import type {
   CommandSessionInfo,
   ArtifactInfo,
   PermissionRequestInfo,
+  FileChangeInfo,
 } from '@/types/global'
 import { useUiStore } from './ui.store'
 
@@ -29,6 +30,9 @@ export const useTaskStore = defineStore('task', () => {
   // 任务生成物
   const artifacts = ref<ArtifactInfo[]>([])
   const artifactsByTaskId = ref<Record<string, ArtifactInfo[]>>({})
+  // 文件变更
+  const fileChanges = ref<FileChangeInfo[]>([])
+  const fileChangesByTaskId = ref<Record<string, FileChangeInfo[]>>({})
   // 任务审批记录
   const permissionRequests = ref<PermissionRequestInfo[]>([])
   const permissionRequestsByTaskId = ref<Record<string, PermissionRequestInfo[]>>({})
@@ -124,6 +128,7 @@ export const useTaskStore = defineStore('task', () => {
         // 刷新步骤和工具调用
         if (currentTask.value) {
           scheduleTaskDetailsRefresh(currentTask.value.id, 0)
+          loadFileChanges(currentTask.value.id)
         }
         break
       case 'task:failed':
@@ -133,6 +138,7 @@ export const useTaskStore = defineStore('task', () => {
         }
         if (currentTask.value) {
           scheduleTaskDetailsRefresh(currentTask.value.id, 0)
+          loadFileChanges(currentTask.value.id)
         }
         break
       case 'task:stopped':
@@ -142,6 +148,7 @@ export const useTaskStore = defineStore('task', () => {
         }
         if (currentTask.value) {
           scheduleTaskDetailsRefresh(currentTask.value.id, 0)
+          loadFileChanges(currentTask.value.id)
         }
         break
       case 'permission:requested':
@@ -406,6 +413,7 @@ export const useTaskStore = defineStore('task', () => {
       toolCalls.value = []
       logs.value = []
       artifacts.value = []
+      fileChanges.value = []
       permissionRequests.value = []
       return
     }
@@ -417,6 +425,7 @@ export const useTaskStore = defineStore('task', () => {
         await Promise.all([
           refreshTaskDetails(taskId),
           loadArtifacts(taskId),
+          loadFileChanges(taskId),
           loadPermissionRequests(taskId),
           loadCommandSessions(taskId),
         ])
@@ -461,6 +470,7 @@ export const useTaskStore = defineStore('task', () => {
       await Promise.all([
         refreshTaskDetails(taskId),
         loadArtifacts(taskId),
+        loadFileChanges(taskId),
         loadPermissionRequests(taskId),
         loadCommandSessions(taskId),
       ])
@@ -502,6 +512,23 @@ export const useTaskStore = defineStore('task', () => {
       artifactsByTaskId.value = { ...artifactsByTaskId.value, [taskId]: [] }
       if (currentTask.value?.id === taskId) {
         artifacts.value = []
+      }
+    }
+  }
+
+  async function loadFileChanges(taskId: string) {
+    if (!window.tiex) return
+    try {
+      const taskFileChanges = await window.tiex.fileChange.getByTask(taskId)
+      fileChangesByTaskId.value = { ...fileChangesByTaskId.value, [taskId]: taskFileChanges }
+      if (currentTask.value?.id === taskId) {
+        fileChanges.value = taskFileChanges
+      }
+    } catch (err) {
+      console.error('Failed to load file changes:', err)
+      fileChangesByTaskId.value = { ...fileChangesByTaskId.value, [taskId]: [] }
+      if (currentTask.value?.id === taskId) {
+        fileChanges.value = []
       }
     }
   }
@@ -557,6 +584,8 @@ export const useTaskStore = defineStore('task', () => {
     logsByTaskId.value = {}
     artifacts.value = []
     artifactsByTaskId.value = {}
+    fileChanges.value = []
+    fileChangesByTaskId.value = {}
     permissionRequests.value = []
     permissionRequestsByTaskId.value = {}
     isRunning.value = false
@@ -577,6 +606,8 @@ export const useTaskStore = defineStore('task', () => {
     logsByTaskId,
     artifacts,
     artifactsByTaskId,
+    fileChanges,
+    fileChangesByTaskId,
     permissionRequests,
     permissionRequestsByTaskId,
     isRunning,
@@ -591,6 +622,7 @@ export const useTaskStore = defineStore('task', () => {
     refreshTaskDetails,
     preloadConversationTaskHistory,
     loadArtifacts,
+    loadFileChanges,
     loadPermissionRequests,
     loadCommandSessions,
     clear,

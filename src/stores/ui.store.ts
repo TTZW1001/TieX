@@ -22,6 +22,7 @@ export interface ConfirmRequestData {
 }
 
 type ConfirmResolver = (ok: boolean) => void
+export type ComposerDraftSource = 'command_failure' | 'permission_rejection' | 'manual_plan' | 'generic'
 
 export const useUiStore = defineStore('ui', () => {
   const sidebarCollapsed = ref(false)
@@ -30,7 +31,8 @@ export const useUiStore = defineStore('ui', () => {
   const conversationDetailOpen = ref(false)
   const conversationDetailId = ref<string | null>(null)
   const composerDraft = ref('')
-  const activeDrawerTab = ref<'steps' | 'files' | 'logs' | 'changes' | 'artifacts' | 'workspace'>('steps')
+  const composerDraftSource = ref<ComposerDraftSource | null>(null)
+  const activeDrawerTab = ref<'steps' | 'context' | 'files' | 'logs' | 'changes' | 'permissions' | 'artifacts' | 'workspace'>('steps')
   const currentPermissionRequest = ref<PermissionRequestData | null>(null)
   const currentConfirmRequest = ref<ConfirmRequestData | null>(null)
   let confirmResolver: ConfirmResolver | null = null
@@ -93,15 +95,17 @@ export const useUiStore = defineStore('ui', () => {
     conversationDetailId.value = null
   }
 
-  function setComposerDraft(value: string) {
+  function setComposerDraft(value: string, source: ComposerDraftSource = 'generic') {
     composerDraft.value = value
+    composerDraftSource.value = source
   }
 
   function clearComposerDraft() {
     composerDraft.value = ''
+    composerDraftSource.value = null
   }
 
-  function setDrawerTab(tab: 'steps' | 'files' | 'logs' | 'changes' | 'artifacts' | 'workspace') {
+  function setDrawerTab(tab: 'steps' | 'context' | 'files' | 'logs' | 'changes' | 'permissions' | 'artifacts' | 'workspace') {
     activeDrawerTab.value = tab
   }
 
@@ -137,6 +141,7 @@ export const useUiStore = defineStore('ui', () => {
     conversationDetailOpen,
     conversationDetailId,
     composerDraft,
+    composerDraftSource,
     activeDrawerTab,
     currentPermissionRequest,
     currentConfirmRequest,

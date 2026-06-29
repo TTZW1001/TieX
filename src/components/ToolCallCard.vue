@@ -1,45 +1,14 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { CheckCircle2, Loader2, XCircle } from 'lucide-vue-next'
 import type { ToolCallEntity } from '@/types/global'
+import { getToolDisplayInfo, getToolStatusText } from '@/utils/tool-call-format'
 
-defineProps<{
+const props = defineProps<{
   toolCall: ToolCallEntity
 }>()
 
-/** 解析参数 */
-function parseArgs(args: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(args)
-  } catch {
-    return null
-  }
-}
-
-/** 解析结果 */
-function parseResult(result: string | null): unknown {
-  if (!result) return null
-  try {
-    return JSON.parse(result)
-  } catch {
-    return result
-  }
-}
-
-/** 状态文本 */
-function statusText(status: string): string {
-  switch (status) {
-    case 'completed':
-      return '已完成'
-    case 'running':
-      return '执行中'
-    case 'failed':
-      return '失败'
-    case 'pending':
-      return '等待中'
-    default:
-      return status
-  }
-}
+const display = computed(() => getToolDisplayInfo(props.toolCall))
 </script>
 
 <template>
@@ -48,24 +17,36 @@ function statusText(status: string): string {
       <CheckCircle2 v-if="toolCall.status === 'completed'" :size="14" class="status-icon success" />
       <Loader2 v-else-if="toolCall.status === 'running' || toolCall.status === 'pending'" :size="14" class="status-icon running" />
       <XCircle v-else :size="14" class="status-icon failed" />
-      <b>{{ toolCall.tool_name }}</b>
-      <span class="tool-status-text">{{ statusText(toolCall.status) }}</span>
+      <div class="tool-title-group">
+        <b>{{ display.title }}</b>
+        <span>{{ display.verb }} · {{ toolCall.tool_name }}</span>
+      </div>
+      <span class="tool-status-text">{{ getToolStatusText(toolCall.status) }}</span>
       <span v-if="toolCall.duration_ms" class="tool-duration">{{ toolCall.duration_ms }}ms</span>
     </div>
     <div class="tool-body">
-      <!-- 参数 -->
-      <details v-if="parseArgs(toolCall.arguments)" class="tool-section">
-        <summary>参数</summary>
-        <pre class="code-block">{{ JSON.stringify(parseArgs(toolCall.arguments), null, 2) }}</pre>
+      <div class="tool-summary">
+        <div class="tool-summary-main">{{ display.summary }}</div>
+        <div v-if="display.detail" class="tool-summary-sub">{{ display.detail }}</div>
+      </div>
+
+      <div v-if="display.fields.length > 0" class="tool-fields">
+        <div v-for="field in display.fields" :key="field.label" class="tool-field">
+          <span>{{ field.label }}</span>
+          <b>{{ field.value }}</b>
+        </div>
+      </div>
+
+      <details v-if="display.rawArguments" class="tool-section">
+        <summary>原始参数</summary>
+        <pre class="code-block">{{ display.rawArguments }}</pre>
       </details>
 
-      <!-- 结果 -->
-      <details v-if="toolCall.result" class="tool-section" open>
-        <summary>结果</summary>
-        <pre class="code-block">{{ JSON.stringify(parseResult(toolCall.result), null, 2) }}</pre>
+      <details v-if="display.hasResult" class="tool-section">
+        <summary>原始结果</summary>
+        <pre class="code-block">{{ display.rawResult }}</pre>
       </details>
 
-      <!-- 错误 -->
       <div v-if="toolCall.error_message" class="tool-error">
         <strong>{{ toolCall.error_code }}</strong>: {{ toolCall.error_message }}
       </div>
@@ -113,6 +94,25 @@ function statusText(status: string): string {
   color: var(--muted);
 }
 
+.tool-title-group {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tool-title-group b {
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.tool-title-group span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
 .tool-duration {
   color: var(--muted);
   font-size: 11px;
@@ -125,6 +125,53 @@ function statusText(status: string): string {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.7;
+}
+
+.tool-summary {
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.tool-summary-main {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-strong);
+  word-break: break-word;
+}
+
+.tool-summary-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.tool-fields {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tool-field {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 56%, transparent);
+}
+
+.tool-field span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tool-field b {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  word-break: break-word;
 }
 
 .tool-section {

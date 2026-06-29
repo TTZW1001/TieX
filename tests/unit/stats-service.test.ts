@@ -72,8 +72,8 @@ describe('StatsService', () => {
       VALUES (?, 'conv-1', 'assistant', ?, ?)
     `)
 
-    insertMessage.run('msg-1', 120, '2026-06-26T12:05:00.000Z')
-    insertMessage.run('msg-2', 80, '2026-06-26T14:25:00.000Z')
+    insertMessage.run('msg-1', 120, '2026-06-26T12:05:00+08:00')
+    insertMessage.run('msg-2', 80, '2026-06-26T14:25:00+08:00')
   })
 
   afterEach(() => {

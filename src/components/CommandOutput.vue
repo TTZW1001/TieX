@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Loader2, Square, CheckCircle2, XCircle, Clock, AlertTriangle } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { Loader2, Square, CheckCircle2, XCircle, Clock, AlertTriangle, Copy, Check, MessageSquareText } from 'lucide-vue-next'
 import type { CommandSessionInfo } from '@/types/global'
+import { useUiStore } from '@/stores/ui.store'
 
 const props = defineProps<{
   session: CommandSessionInfo
@@ -10,6 +11,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   stop: [sessionId: string]
 }>()
+
+const copiedKind = ref<'command' | 'output' | 'diagnostic' | null>(null)
+let copiedTimer: ReturnType<typeof setTimeout> | null = null
+const uiStore = useUiStore()
 
 /** 状态文本 */
 function statusText(status: string): string {
@@ -60,9 +65,79 @@ const duration = computed(() => {
 
 /** 命令显示文本 */
 const commandDisplay = computed(() => {
-  const parts = [props.session.command, ...props.session.args]
+  const parts = [props.session.command, ...props.session.args.map(quoteArg)]
   return parts.join(' ')
 })
+
+const hasFailed = computed(() => {
+  return props.session.status === 'failed' || props.session.status === 'timeout' || (props.session.exitCode !== null && props.session.exitCode !== 0)
+})
+
+const failureTitle = computed(() => {
+  if (props.session.status === 'timeout') return '命令执行超时'
+  if (props.session.status === 'stopped') return '命令已被停止'
+  if (props.session.exitCode !== null && props.session.exitCode !== 0) return `命令以退出码 ${props.session.exitCode} 结束`
+  return '命令执行失败'
+})
+
+const failureAdvice = computed(() => {
+  if (props.session.status === 'timeout') return '可以检查命令是否需要交互输入、网络访问或更长执行时间。'
+  if (props.session.status === 'stopped') return '如果仍需要结果，可以复制命令后重新发起任务让 Agent 继续处理。'
+  if (props.session.exitCode === 127) return '常见原因是命令不存在或不在 PATH 中。'
+  if (props.session.exitCode === 126) return '常见原因是文件不可执行或权限不足。'
+  if (props.session.exitCode === 1) return '通常表示命令自身校验失败，建议查看输出末尾的错误信息。'
+  return '建议把命令、退出码和输出一并反馈给 Agent，让它基于真实错误继续修复。'
+})
+
+const diagnosticText = computed(() => {
+  const lines = [
+    `命令: ${commandDisplay.value}`,
+    `状态: ${statusText(props.session.status)}`,
+    `退出码: ${props.session.exitCode ?? '无'}`,
+    `耗时: ${duration.value ?? '未知'}`,
+  ]
+  if (props.session.output.trim()) {
+    lines.push('', '输出:', props.session.output)
+  }
+  return lines.join('\n')
+})
+
+const followUpDraft = computed(() => {
+  return [
+    '这个命令没有成功，请基于下面的真实诊断继续排查并给出下一步修复方案。',
+    '',
+    '```text',
+    diagnosticText.value,
+    '```',
+  ].join('\n')
+})
+
+function quoteArg(arg: string): string {
+  if (!arg) return '""'
+  if (!/[\s"`']/.test(arg)) return arg
+  return `"${arg.replace(/(["\\$`])/g, '\\$1')}"`
+}
+
+async function copyText(kind: 'command' | 'output' | 'diagnostic', text: string) {
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    copiedKind.value = kind
+    if (copiedTimer) {
+      clearTimeout(copiedTimer)
+    }
+    copiedTimer = setTimeout(() => {
+      copiedKind.value = null
+      copiedTimer = null
+    }, 1400)
+  } catch (err) {
+    console.error('Failed to copy command output:', err)
+  }
+}
+
+function continueWithDiagnostic() {
+  uiStore.setComposerDraft(followUpDraft.value, 'command_failure')
+}
 
 /** 停止命令 */
 function handleStop() {
@@ -98,6 +173,46 @@ function handleStop() {
           <Square :size="10" /> 停止
         </button>
       </div>
+    </div>
+    <div class="cmd-actions">
+      <button class="cmd-action-btn" @click="copyText('command', commandDisplay)" title="复制命令">
+        <Check v-if="copiedKind === 'command'" :size="12" />
+        <Copy v-else :size="12" />
+        {{ copiedKind === 'command' ? '已复制' : '复制命令' }}
+      </button>
+      <button
+        class="cmd-action-btn"
+        :disabled="!session.output"
+        @click="copyText('output', session.output)"
+        title="复制输出"
+      >
+        <Check v-if="copiedKind === 'output'" :size="12" />
+        <Copy v-else :size="12" />
+        {{ copiedKind === 'output' ? '已复制' : '复制输出' }}
+      </button>
+      <button
+        class="cmd-action-btn"
+        :disabled="!hasFailed"
+        @click="copyText('diagnostic', diagnosticText)"
+        title="复制诊断信息"
+      >
+        <Check v-if="copiedKind === 'diagnostic'" :size="12" />
+        <Copy v-else :size="12" />
+        {{ copiedKind === 'diagnostic' ? '已复制' : '复制诊断' }}
+      </button>
+      <button
+        class="cmd-action-btn primary"
+        :disabled="!hasFailed && session.status !== 'stopped'"
+        @click="continueWithDiagnostic"
+        title="将诊断填入输入框"
+      >
+        <MessageSquareText :size="12" />
+        继续处理
+      </button>
+    </div>
+    <div v-if="hasFailed || session.status === 'stopped'" class="cmd-failure-note" :class="statusClass(session.status)">
+      <div class="cmd-failure-title">{{ failureTitle }}</div>
+      <div class="cmd-failure-advice">{{ failureAdvice }}</div>
     </div>
     <div class="cmd-output-area" v-if="session.output">
       <pre class="cmd-output-text">{{ session.output }}</pre>
@@ -227,6 +342,79 @@ function handleStop() {
   background: var(--danger-soft);
   color: var(--danger-strong);
   border-color: var(--danger-strong);
+}
+
+.cmd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 58%, transparent);
+  background: color-mix(in srgb, var(--panel) 76%, transparent);
+}
+
+.cmd-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--code-bg));
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.cmd-action-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  color: var(--text);
+}
+
+.cmd-action-btn.primary {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--line));
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+
+.cmd-action-btn.primary:hover:not(:disabled) {
+  color: var(--text-strong);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--accent) 13%, var(--panel));
+}
+
+.cmd-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cmd-failure-note {
+  padding: 9px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 58%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.cmd-failure-note.cmd-timeout,
+.cmd-failure-note.cmd-stopped {
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+}
+
+.cmd-failure-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.cmd-failure-advice {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .cmd-output-area {

@@ -237,3 +237,48 @@ export function toApiMessages(messages: ContextMessage[]): any[] {
     return result
   })
 }
+
+export function buildContextSnapshotSummary(input: {
+  round: number
+  messages: ContextMessage[]
+  tools: ToolDefinition[]
+}): string {
+  const counts = input.messages.reduce<Record<string, number>>((acc, message) => {
+    acc[message.role] = (acc[message.role] ?? 0) + 1
+    return acc
+  }, {})
+  const systemMessages = input.messages.filter((message) => message.role === 'system')
+  const recentUserMessages = input.messages.filter((message) => message.role === 'user').slice(-3)
+  const hasToolResults = input.messages.some((message) => message.role === 'tool')
+  const hasToolCalls = input.messages.some((message) => message.tool_calls && message.tool_calls.length > 0)
+  const toolNames = input.tools.map((tool) => tool.function.name)
+
+  const sourceLines = systemMessages.map((message) => {
+    const firstLine = String(message.content).split('\n').find((line) => line.trim()) ?? ''
+    if (firstLine.startsWith('会话摘要记忆')) return '- 会话摘要：已带入'
+    if (firstLine.startsWith('资料整理 Agent')) return '- 资料整理简报：已带入'
+    if (firstLine.startsWith('规则记忆 Agent')) return '- 规则记忆简报：已带入'
+    if (firstLine.includes('纠正')) return '- 用户纠正提醒：已带入'
+    if (firstLine.includes('工具执行事实')) return '- 工具执行事实：已带入'
+    return '- 系统提示词：已带入'
+  })
+
+  const userSignals = recentUserMessages.map((message, index) => {
+    const text = String(message.content).replace(/\s+/g, ' ').slice(0, 120)
+    return `${index + 1}. ${text}${String(message.content).length > 120 ? '...' : ''}`
+  })
+
+  return [
+    `第 ${input.round + 1} 轮上下文快照`,
+    '',
+    `消息构成：system ${counts.system ?? 0} / user ${counts.user ?? 0} / assistant ${counts.assistant ?? 0} / tool ${counts.tool ?? 0}`,
+    `可用工具：${toolNames.length ? toolNames.join('、') : '无'}`,
+    `工具历史：${hasToolCalls || hasToolResults ? '已带入上一轮工具调用或结果' : '无上一轮工具历史'}`,
+    '',
+    '上下文来源：',
+    ...(sourceLines.length ? Array.from(new Set(sourceLines)) : ['- 暂无额外来源']),
+    '',
+    '最近用户信号：',
+    ...(userSignals.length ? userSignals : ['暂无用户消息']),
+  ].join('\n')
+}

@@ -17,6 +17,12 @@ import {
   decideAfterRoute,
 } from './langgraph-routing'
 import { buildExecutionFactSummary } from './execution-facts'
+import {
+  buildTaskResultSummaryObject,
+  mergeReplyWithTaskResultSummary,
+  recordTaskResultSummaryStep,
+  renderTaskResultSummary,
+} from './task-result-summary'
 
 const messageRepo = new MessageRepository()
 const taskStepRepo = new TaskStepRepository()
@@ -66,8 +72,18 @@ async function respondNode(state: AgentGraphStateType) {
     executionFacts.hasSuccessfulWrite &&
     !executionFacts.hasRejectedPermission
 
-  const finalReply = shouldBypassResponder
-    ? enforceFinalReplyFacts(state.implementationOutput, executionFacts)
+  const bypassSummaryObject = shouldBypassResponder
+    ? buildTaskResultSummaryObject(state.runtime.taskId, executionFacts)
+    : null
+  if (bypassSummaryObject) {
+    recordTaskResultSummaryStep(state.runtime.taskId, bypassSummaryObject)
+  }
+
+  const finalReply = bypassSummaryObject
+    ? mergeReplyWithTaskResultSummary(
+        enforceFinalReplyFacts(state.implementationOutput, executionFacts),
+        renderTaskResultSummary(bypassSummaryObject)
+      )
     : await runResponderPass(state.runtime, state.implementationOutput, state.assistantMessageId)
   messageRepo.updateContent(state.assistantMessageId, finalReply)
   messageRepo.setStreaming(state.assistantMessageId, 0)

@@ -1,4 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type {
+  ArtifactInfo,
+  CommandOutputInfo,
+  CommandSessionInfo,
+  FileChangeInfo,
+  OperationLogEntity,
+  PermissionDecision,
+  PermissionRequestInfo,
+  ProviderInfo,
+  StatsOverviewInfo,
+  TaskEvent,
+  TaskInfo,
+  TaskStepEntity,
+  ToolCallEntity,
+} from '../../src/types/global'
 
 const api = {
   window: {
@@ -23,10 +38,10 @@ const api = {
       ipcRenderer.invoke('settings:update', key, value),
   },
   provider: {
-    list: (): Promise<any[]> => ipcRenderer.invoke('provider:list'),
-    getDefault: (): Promise<any> => ipcRenderer.invoke('provider:getDefault'),
-    getById: (id: string): Promise<any> => ipcRenderer.invoke('provider:getById', id),
-    create: (data: Record<string, unknown>): Promise<any> =>
+    list: (): Promise<ProviderInfo[]> => ipcRenderer.invoke('provider:list'),
+    getDefault: (): Promise<ProviderInfo | null> => ipcRenderer.invoke('provider:getDefault'),
+    getById: (id: string): Promise<ProviderInfo | null> => ipcRenderer.invoke('provider:getById', id),
+    create: (data: Record<string, unknown>): Promise<ProviderInfo> =>
       ipcRenderer.invoke('provider:create', data),
     update: (id: string, data: Record<string, unknown>): Promise<void> =>
       ipcRenderer.invoke('provider:update', id, data),
@@ -127,40 +142,40 @@ const api = {
     }): Promise<{ taskId: string; userMessageId: string }> => ipcRenderer.invoke('task:start', request),
     stop: (taskId: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('task:stop', taskId),
-    getById: (taskId: string): Promise<any> => ipcRenderer.invoke('task:getById', taskId),
-    getByConversation: (conversationId: string): Promise<any[]> =>
+    getById: (taskId: string): Promise<TaskInfo | null> => ipcRenderer.invoke('task:getById', taskId),
+    getByConversation: (conversationId: string): Promise<TaskInfo[]> =>
       ipcRenderer.invoke('task:getByConversation', conversationId),
-    getSteps: (taskId: string): Promise<any[]> =>
+    getSteps: (taskId: string): Promise<TaskStepEntity[]> =>
       ipcRenderer.invoke('task:getSteps', taskId),
-    getToolCalls: (taskId: string): Promise<any[]> =>
+    getToolCalls: (taskId: string): Promise<ToolCallEntity[]> =>
       ipcRenderer.invoke('task:getToolCalls', taskId),
-    getLogs: (taskId: string): Promise<any[]> => ipcRenderer.invoke('task:getLogs', taskId),
+    getLogs: (taskId: string): Promise<OperationLogEntity[]> => ipcRenderer.invoke('task:getLogs', taskId),
     rollback: (taskId: string): Promise<{ success: boolean; restoredCount: number; message?: string }> =>
       ipcRenderer.invoke('task:rollback', taskId),
-    onEvent: (callback: (event: any) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data)
+    onEvent: (callback: (event: TaskEvent) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: TaskEvent) => callback(data)
       ipcRenderer.on('task:event', handler)
       return () => ipcRenderer.removeListener('task:event', handler)
     },
   },
   permission: {
-    decide: (requestId: string, decision: string): Promise<void> =>
-      ipcRenderer.invoke('permission:decide', requestId, decision),
-    getRequest: (requestId: string): Promise<any> =>
+    decide: (requestId: string, decision: PermissionDecision, decisionReason?: string | null): Promise<void> =>
+      ipcRenderer.invoke('permission:decide', requestId, decision, decisionReason),
+    getRequest: (requestId: string): Promise<PermissionRequestInfo | null> =>
       ipcRenderer.invoke('permission:getRequest', requestId),
-    getByTask: (taskId: string): Promise<any[]> =>
+    getByTask: (taskId: string): Promise<PermissionRequestInfo[]> =>
       ipcRenderer.invoke('permission:getByTask', taskId),
   },
   fileChange: {
-    getByTask: (taskId: string): Promise<any[]> =>
+    getByTask: (taskId: string): Promise<FileChangeInfo[]> =>
       ipcRenderer.invoke('fileChange:getByTask', taskId),
     restore: (fileChangeId: string): Promise<{ success: boolean; conflict?: boolean; message?: string }> =>
       ipcRenderer.invoke('fileChange:restore', fileChangeId),
   },
   artifact: {
-    getByTask: (taskId: string): Promise<any[]> =>
+    getByTask: (taskId: string): Promise<ArtifactInfo[]> =>
       ipcRenderer.invoke('artifact:getByTask', taskId),
-    getById: (artifactId: string): Promise<any> =>
+    getById: (artifactId: string): Promise<ArtifactInfo | null> =>
       ipcRenderer.invoke('artifact:getById', artifactId),
     openFile: (artifactId: string): Promise<boolean> =>
       ipcRenderer.invoke('artifact:openFile', artifactId),
@@ -172,9 +187,9 @@ const api = {
   command: {
     stop: (sessionId: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('command:stop', sessionId),
-    getOutput: (sessionId: string): Promise<any> =>
+    getOutput: (sessionId: string): Promise<CommandOutputInfo | null> =>
       ipcRenderer.invoke('command:getOutput', sessionId),
-    getByTask: (taskId: string): Promise<any[]> =>
+    getByTask: (taskId: string): Promise<CommandSessionInfo[]> =>
       ipcRenderer.invoke('command:getByTask', taskId),
   },
   shell: {
@@ -196,7 +211,7 @@ const api = {
       ipcRenderer.invoke('shell:showInFolder', filePath),
   },
   stats: {
-    getOverview: (): Promise<any> => ipcRenderer.invoke('stats:getOverview'),
+    getOverview: (): Promise<StatsOverviewInfo> => ipcRenderer.invoke('stats:getOverview'),
     getConversationDetail: (conversationId: string): Promise<any> =>
       ipcRenderer.invoke('stats:getConversationDetail', conversationId),
   },

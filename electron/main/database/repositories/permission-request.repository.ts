@@ -16,6 +16,7 @@ export interface PermissionRequestEntity {
   risk_level: string
   status: string // pending | approved | rejected | cancelled
   decision_scope: string | null // once | conversation
+  decision_reason: string | null
   requested_at: string
   decided_at: string | null
 }
@@ -97,12 +98,17 @@ export class PermissionRequestRepository {
       .all(conversationId, permissionType) as PermissionRequestEntity[]
   }
 
-  updateDecision(id: string, status: 'approved' | 'rejected' | 'cancelled', decisionScope?: 'once' | 'conversation'): void {
+  updateDecision(
+    id: string,
+    status: 'approved' | 'rejected' | 'cancelled',
+    decisionScope?: 'once' | 'conversation',
+    decisionReason?: string | null,
+  ): void {
     const db = getDatabase()
     const now = new Date().toISOString()
     db.prepare(
-      'UPDATE permission_requests SET status = ?, decision_scope = ?, decided_at = ? WHERE id = ?'
-    ).run(status, decisionScope ?? null, now, id)
+      'UPDATE permission_requests SET status = ?, decision_scope = ?, decision_reason = ?, decided_at = ? WHERE id = ?'
+    ).run(status, decisionScope ?? null, decisionReason?.trim() || null, now, id)
   }
 
   cancelPendingByTaskId(taskId: string): void {

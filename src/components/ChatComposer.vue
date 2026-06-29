@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { FolderOpen, Paperclip, Send, SlidersHorizontal, Square, X } from 'lucide-vue-next'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { FolderOpen, MessageSquareText, Paperclip, Send, SlidersHorizontal, Square, X } from 'lucide-vue-next'
 import { useChatStore } from '@/stores/chat.store'
 import { useConversationStore } from '@/stores/conversation.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
 import { useTaskStore } from '@/stores/task.store'
 import { useUiStore } from '@/stores/ui.store'
 import { useSettingsStore } from '@/stores/settings.store'
-import { supportsMultimodal } from '@/utils/provider-capabilities'
+import { getProviderCapabilities, getProviderCapabilityBadges, getProviderCapabilitySummary } from '@/utils/provider-capabilities'
+import type { ComposerDraftSource } from '@/stores/ui.store'
 
 const chatStore = useChatStore()
 const conversationStore = useConversationStore()
@@ -17,9 +18,12 @@ const uiStore = useUiStore()
 const settingsStore = useSettingsStore()
 const inputText = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const attachments = ref<Array<{ path: string; name: string; mimeType: string | null; size: number | null }>>([])
 const showSessionConfig = ref(false)
 const sessionConfigWrap = ref<HTMLElement | null>(null)
+const draftNotice = ref('')
+let draftNoticeTimer: ReturnType<typeof setTimeout> | null = null
 
 const showStopButton = computed(() => taskStore.isRunning || chatStore.isStreaming)
 
@@ -63,10 +67,23 @@ const currentProvider = computed(() => {
   const provider = settingsStore.providers.find((item) => item.id === (currentConversation.value?.provider_id ?? settingsStore.providerId))
   return provider ?? null
 })
-const canAttach = computed(() => {
+const currentProviderCapabilities = computed(() => {
   const provider = currentProvider.value
-  if (!provider) return false
-  return supportsMultimodal(provider.provider_type, provider.model_name)
+  if (!provider) return null
+  return getProviderCapabilities(provider.provider_type, provider.model_name)
+})
+const currentProviderCapabilityBadges = computed(() => {
+  const provider = currentProvider.value
+  if (!provider) return []
+  return getProviderCapabilityBadges(provider.provider_type, provider.model_name)
+})
+const providerCapabilitySummary = computed(() => {
+  const provider = currentProvider.value
+  if (!provider) return '未选择模型服务'
+  return getProviderCapabilitySummary(provider.provider_type, provider.model_name)
+})
+const canAttach = computed(() => {
+  return currentProviderCapabilities.value?.supportsAttachments ?? false
 })
 
 const attachmentLabel = computed(() => {
@@ -94,12 +111,32 @@ const providerModelLabel = computed(() => {
   return `${provider.name} · ${provider.model_name}`
 })
 
+function draftNoticeText(source: ComposerDraftSource | null): string {
+  if (source === 'command_failure') return '已填入命令失败诊断，可检查后发送'
+  if (source === 'permission_rejection') return '已填入权限拒绝说明，可检查后发送'
+  if (source === 'manual_plan') return '已填入人工处理方案草稿，可检查后发送'
+  return '已填入继续处理草稿，可检查后发送'
+}
+
 watch(
   () => uiStore.composerDraft,
-  (value) => {
+  async (value) => {
     if (!value) return
+    const source = uiStore.composerDraftSource
     inputText.value = value
     uiStore.clearComposerDraft()
+    draftNotice.value = draftNoticeText(source)
+    if (draftNoticeTimer) {
+      clearTimeout(draftNoticeTimer)
+    }
+    draftNoticeTimer = setTimeout(() => {
+      draftNotice.value = ''
+      draftNoticeTimer = null
+    }, 3200)
+    await nextTick()
+    textareaRef.value?.focus()
+    const length = inputText.value.length
+    textareaRef.value?.setSelectionRange(length, length)
   }
 )
 
@@ -218,6 +255,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleDocumentPointerDown)
+  if (draftNoticeTimer) {
+    clearTimeout(draftNoticeTimer)
+  }
 })
 </script>
 
@@ -229,7 +269,13 @@ onBeforeUnmount(() => {
         <span>{{ statusText }}</span>
       </div>
 
+      <div v-if="draftNotice" class="composer-draft-notice" aria-live="polite">
+        <MessageSquareText :size="13" />
+        <span>{{ draftNotice }}</span>
+      </div>
+
       <textarea
+        ref="textareaRef"
         v-model="inputText"
         @keydown.enter.exact.prevent="send"
         :disabled="showStopButton"
@@ -266,6 +312,19 @@ onBeforeUnmount(() => {
               <div class="composer-model-pill session-model-pill" :title="providerModelLabel">
                 {{ providerModelLabel }}
               </div>
+              <div class="session-capability-panel">
+                <div class="session-capability-summary">{{ providerCapabilitySummary }}</div>
+                <div class="session-capability-strip">
+                  <span
+                    v-for="badge in currentProviderCapabilityBadges"
+                    :key="badge.key"
+                    class="session-capability-pill"
+                    :class="{ off: !badge.enabled }"
+                  >
+                    {{ badge.label }}
+                  </span>
+                </div>
+              </div>
               <label class="composer-select-field session-field">
                 <span class="field-label">权限模式</span>
                 <select class="composer-select" :value="currentPermissionMode" @change="changePermissionMode" :disabled="!effectiveWorkspaceId">
@@ -282,7 +341,7 @@ onBeforeUnmount(() => {
             <Paperclip :size="14" />
             {{ canAttach ? attachmentLabel : '当前模型不支持附件' }}
           </button>
-          <div v-if="!canAttach" class="attachment-hint">切换到支持多模态的模型后可上传附件。</div>
+          <div v-if="!canAttach" class="attachment-hint">{{ currentProviderCapabilities?.notes[0] ?? '切换到支持多模态的模型后可上传附件。' }}</div>
           <input ref="fileInput" type="file" multiple class="hidden-file-input" @change="handleFileChange" />
         </div>
 
@@ -332,6 +391,21 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
   color: var(--sidebar-text-muted);
   font-size: 12px;
+}
+
+.composer-draft-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  margin: 0 0 8px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .composer-status-dot {
@@ -498,6 +572,48 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: none;
   margin-top: 10px;
+}
+
+.session-capability-panel {
+  margin-top: 8px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--sidebar-border) 72%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg) 38%, transparent);
+}
+
+.session-capability-summary {
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.session-capability-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.session-capability-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--success) 22%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+  color: var(--success-strong);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.session-capability-pill.off {
+  border-color: color-mix(in srgb, var(--sidebar-border) 74%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg) 34%, transparent);
+  color: var(--muted);
 }
 
 .session-hint {

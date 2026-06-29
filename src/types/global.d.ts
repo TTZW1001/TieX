@@ -340,6 +340,7 @@ export interface TaskEvent {
   impactSummary?: string
   riskLevel?: string
   decision?: string
+  decisionReason?: string
   // 生成物相关
   artifactId?: string
   artifactType?: string
@@ -366,6 +367,7 @@ export interface PermissionRequestInfo {
   risk_level: string
   status: string
   decision_scope: string | null
+  decision_reason: string | null
   requested_at: string
   decided_at: string | null
 }
@@ -512,7 +514,7 @@ export interface TieXDesktopAPI {
     onEvent: (callback: (event: TaskEvent) => void) => () => void
   }
   permission: {
-    decide: (requestId: string, decision: PermissionDecision) => Promise<void>
+    decide: (requestId: string, decision: PermissionDecision, decisionReason?: string | null) => Promise<void>
     getRequest: (requestId: string) => Promise<PermissionRequestInfo | null>
     getByTask: (taskId: string) => Promise<PermissionRequestInfo[]>
   }

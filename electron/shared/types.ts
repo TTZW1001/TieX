@@ -523,7 +523,7 @@ export type TaskEvent =
   | { type: 'task:failed'; taskId: string; error: string }
   | { type: 'task:stopped'; taskId: string }
   | { type: 'permission:requested'; taskId: string; requestId: string; toolName: string; title: string; reason?: string; target?: string; impactSummary?: string; riskLevel?: string }
-  | { type: 'permission:decided'; taskId: string; requestId: string; decision: string }
+  | { type: 'permission:decided'; taskId: string; requestId: string; decision: string; decisionReason?: string }
   | { type: 'artifact:created'; taskId: string; artifactId: string; artifactType: string; name: string }
   | { type: 'command:started'; taskId: string; sessionId: string; command: string; args: string[] }
   | { type: 'command:output'; taskId: string; sessionId: string; output: string; truncated: boolean }
@@ -547,6 +547,7 @@ export interface PermissionRequestInfo {
   riskLevel: string
   status: string
   decisionScope: string | null
+  decisionReason: string | null
   requestedAt: string
   decidedAt: string | null
 }

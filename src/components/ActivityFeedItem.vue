@@ -17,6 +17,13 @@ import MarkdownContent from './MarkdownContent.vue'
 import { useTaskStore } from '@/stores/task.store'
 import { useUiStore } from '@/stores/ui.store'
 import type { ArtifactInfo, CommandSessionInfo, PermissionDecision, PermissionRequestInfo } from '@/types/global'
+import {
+  buildPermissionFields,
+  getApprovalScopeText,
+  getManualPlanDraft,
+  getPermissionRiskClass,
+  getPermissionRiskText,
+} from '@/utils/permission-display'
 
 export type ActivityEntry =
   | {
@@ -78,6 +85,7 @@ const { entry } = defineProps<{
 const taskStore = useTaskStore()
 const uiStore = useUiStore()
 const processingPermissionId = ref<string | null>(null)
+const rejectionReasons = ref<Record<string, string>>({})
 const activePermissionId = computed(() => uiStore.currentPermissionRequest?.requestId || null)
 
 function kindLabel(kind: ActivityEntry['kind']): string {
@@ -158,6 +166,15 @@ function getPermissionRequest(requestId: string): PermissionRequestInfo | null {
   return taskStore.permissionRequests.find((request) => request.id === requestId) || null
 }
 
+function permissionFields(request: PermissionRequestInfo) {
+  return buildPermissionFields({
+    reason: request.reason,
+    target: request.target,
+    impactSummary: request.impact_summary,
+    permissionType: request.permission_type,
+  })
+}
+
 function isExpandable(entry: ActivityEntry): boolean {
   if (entry.kind === 'permission' && entry.status === 'waiting') return true
   if (entry.kind === 'command') return !!getCommandSession(entry.sessionId)?.output
@@ -169,11 +186,11 @@ function defaultExpanded(entry: ActivityEntry): boolean {
   return (entry.kind === 'permission' && entry.status === 'waiting') || entry.kind === 'command' || entry.kind === 'agent'
 }
 
-async function submitPermissionDecision(request: PermissionRequestInfo, decision: PermissionDecision) {
+async function submitPermissionDecision(request: PermissionRequestInfo, decision: PermissionDecision, decisionReason?: string | null) {
   if (processingPermissionId.value) return
   processingPermissionId.value = request.id
   try {
-    await window.tiex.permission.decide(request.id, decision)
+    await window.tiex.permission.decide(request.id, decision, decisionReason)
     if (uiStore.currentPermissionRequest?.requestId === request.id) {
       uiStore.closePermissionDialog()
     }
@@ -186,10 +203,27 @@ async function submitPermissionDecision(request: PermissionRequestInfo, decision
 }
 
 async function handleManualPlan(request: PermissionRequestInfo) {
-  const target = request.target ? `\n目标：${request.target}` : ''
-  const reason = request.reason ? `\n原因：${request.reason}` : ''
-  uiStore.setComposerDraft(`不要直接执行这个操作，我会手动处理。请改为给我一个更安全的人工处理方案和逐步说明。${target}${reason}`)
-  await submitPermissionDecision(request, 'rejected')
+  const userReason = rejectionReasons.value[request.id] ?? ''
+  uiStore.setComposerDraft(getManualPlanDraft({
+    reason: request.reason,
+    target: request.target,
+    impactSummary: request.impact_summary,
+    userReason,
+  }), 'manual_plan')
+  await submitPermissionDecision(request, 'rejected', userReason)
+}
+
+async function handleReject(request: PermissionRequestInfo) {
+  const userReason = rejectionReasons.value[request.id]?.trim() ?? ''
+  if (userReason) {
+    uiStore.setComposerDraft(getManualPlanDraft({
+      reason: request.reason,
+      target: request.target,
+      impactSummary: request.impact_summary,
+      userReason,
+    }), 'permission_rejection')
+  }
+  await submitPermissionDecision(request, 'rejected', userReason)
 }
 </script>
 
@@ -229,6 +263,36 @@ async function handleManualPlan(request: PermissionRequestInfo) {
           v-if="entry.kind === 'permission' && entry.status === 'waiting' && getPermissionRequest(entry.requestId)"
           class="permission-actions"
         >
+          <div class="permission-review">
+            <div class="permission-review-head">
+              <span>审批信息</span>
+              <b :class="getPermissionRiskClass(getPermissionRequest(entry.requestId)!.risk_level)">
+                {{ getPermissionRiskText(getPermissionRequest(entry.requestId)!.risk_level) }}
+              </b>
+            </div>
+            <div class="permission-facts">
+              <div
+                v-for="field in permissionFields(getPermissionRequest(entry.requestId)!)"
+                :key="field.label"
+                class="permission-fact"
+              >
+                <span>{{ field.label }}</span>
+                <b>{{ field.value }}</b>
+              </div>
+            </div>
+            <div class="permission-scope-notes">
+              <p>{{ getApprovalScopeText('once') }}</p>
+              <p>{{ getApprovalScopeText('conversation') }}</p>
+            </div>
+            <label class="permission-rejection">
+              <span>拒绝说明（可选）</span>
+              <textarea
+                v-model="rejectionReasons[getPermissionRequest(entry.requestId)!.id]"
+                rows="2"
+                placeholder="写下为什么不允许，TieX 会把它带到下一轮方案里。"
+              />
+            </label>
+          </div>
           <button
             class="secondary-btn"
             :disabled="processingPermissionId === entry.requestId"
@@ -253,7 +317,7 @@ async function handleManualPlan(request: PermissionRequestInfo) {
           <button
             class="danger-btn"
             :disabled="processingPermissionId === entry.requestId"
-            @click="submitPermissionDecision(getPermissionRequest(entry.requestId)!, 'rejected')"
+            @click="handleReject(getPermissionRequest(entry.requestId)!)"
           >
             拒绝
           </button>
@@ -468,6 +532,119 @@ details[open] > .activity-summary .activity-caret {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
+}
+
+.permission-review {
+  flex: 1 0 100%;
+  display: grid;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.permission-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.permission-review-head span {
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.permission-review-head b {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+}
+
+.permission-review-head b.high,
+.permission-review-head b.blocked {
+  color: var(--danger-strong);
+  background: var(--danger-soft);
+}
+
+.permission-review-head b.medium {
+  color: var(--warning-strong);
+  background: var(--warning-soft);
+}
+
+.permission-review-head b.low {
+  color: var(--success-strong);
+  background: var(--success-soft);
+}
+
+.permission-facts {
+  display: grid;
+  gap: 6px;
+}
+
+.permission-fact {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 68%, transparent);
+  background: color-mix(in srgb, var(--panel-2) 84%, transparent);
+}
+
+.permission-fact span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.permission-fact b {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.permission-scope-notes {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.permission-scope-notes p {
+  margin: 0;
+}
+
+.permission-rejection {
+  display: grid;
+  gap: 6px;
+}
+
+.permission-rejection span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.permission-rejection textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 54px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--panel-2) 78%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.permission-rejection textarea:focus {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
 }
 
 .permission-actions button {

@@ -55,7 +55,7 @@ class PermissionServiceImpl {
   /**
    * 处理审批决策
    */
-  handleDecision(requestId: string, decision: PermissionDecision): void {
+  handleDecision(requestId: string, decision: PermissionDecision, decisionReason?: string | null): void {
     const request = permissionRequestRepo.getById(requestId)
     if (!request) {
       throw new Error(`权限请求不存在: ${requestId}`)
@@ -73,7 +73,7 @@ class PermissionServiceImpl {
         permissionRequestRepo.updateDecision(requestId, 'approved', 'conversation')
         break
       case 'rejected':
-        permissionRequestRepo.updateDecision(requestId, 'rejected')
+        permissionRequestRepo.updateDecision(requestId, 'rejected', undefined, decisionReason)
         break
     }
   }

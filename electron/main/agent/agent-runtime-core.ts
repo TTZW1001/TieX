@@ -7,7 +7,7 @@ import type {
 } from '../tools/agent-tool.types'
 import type { TaskStatus } from '../../shared/types'
 import { taskController, type RuntimeContext } from './task-controller'
-import { buildContext } from './context-builder'
+import { buildContext, buildContextSnapshotSummary } from './context-builder'
 import { StreamAccumulator } from './response-parser'
 import { checkWithinLimits, TaskLimitExceededError, loadTaskLimitsFromSettings } from './task-limits'
 import { executeToolCall, checkToolPermission, createPermissionRequest } from '../tools/tool-executor'
@@ -24,6 +24,12 @@ import { throttle } from '../utils/throttle'
 import { analyzeConversationCorrection, buildCorrectionNotice } from './conversation-corrections'
 import { ToolCallRepository } from '../database/repositories/tool-call.repository'
 import { buildExecutionFactSummary } from './execution-facts'
+import {
+  buildTaskResultSummaryObject,
+  mergeReplyWithTaskResultSummary,
+  recordTaskResultSummaryStep,
+  renderTaskResultSummary,
+} from './task-result-summary'
 
 const messageRepo = new MessageRepository()
 const taskStepRepo = new TaskStepRepository()
@@ -481,6 +487,9 @@ export async function runResponderPass(
       analyzeConversationCorrection(runtime.userContent, recentMessages)
     )
     const executionFacts = buildExecutionFactSummary(runtime.taskId)
+    const taskResultSummaryObject = buildTaskResultSummaryObject(runtime.taskId, executionFacts)
+    recordTaskResultSummaryStep(runtime.taskId, taskResultSummaryObject)
+    const taskResultSummary = renderTaskResultSummary(taskResultSummaryObject)
     const systemPrompt = buildSystemPrompt({
       permissionMode: runtime.permissionMode,
       workspaceId: runtime.workspaceId ?? null,
@@ -501,6 +510,12 @@ export async function runResponderPass(
       {
         role: 'system' as const,
         content: executionFacts.text,
+      },
+      {
+        role: 'system' as const,
+        content:
+          '最终回复必须使用下面的交付摘要结构，不要删除这些区块标题；可以在区块前加一句简短自然语言说明，但事实必须以该摘要为准。\n\n' +
+          taskResultSummary,
       },
       ...(correctionNotice
         ? [{ role: 'system' as const, content: correctionNotice }]
@@ -543,7 +558,10 @@ export async function runResponderPass(
       }
     }
 
-    const finalReply = enforceFinalReplyFacts(content.trim() || implementationOutput, executionFacts)
+    const finalReply = mergeReplyWithTaskResultSummary(
+      enforceFinalReplyFacts(content.trim() || implementationOutput, executionFacts),
+      taskResultSummary
+    )
     if (assistantMessageId) {
       messageRepo.updateContent(assistantMessageId, finalReply)
       taskEventBus.emit({
@@ -575,7 +593,13 @@ export async function runResponderPass(
       message: '主对话 Agent 整理失败，回退到代码实现 Agent 原始结论',
       details: err?.message || String(err),
     })
-    return enforceFinalReplyFacts(implementationOutput, buildExecutionFactSummary(runtime.taskId))
+    const fallbackFacts = buildExecutionFactSummary(runtime.taskId)
+    const fallbackSummaryObject = buildTaskResultSummaryObject(runtime.taskId, fallbackFacts)
+    recordTaskResultSummaryStep(runtime.taskId, fallbackSummaryObject)
+    return mergeReplyWithTaskResultSummary(
+      enforceFinalReplyFacts(implementationOutput, fallbackFacts),
+      renderTaskResultSummary(fallbackSummaryObject)
+    )
   }
 }
 
@@ -684,6 +708,18 @@ export async function runImplementationPass(
       collaboratorNotes: runtime.collaboratorNotes,
       pendingToolCalls,
     })
+
+    const contextSnapshotStep = taskStepRepo.create({
+      task_id: taskId,
+      sequence_no: taskStepRepo.getNextSequenceNo(taskId),
+      step_type: 'context_snapshot',
+      content: buildContextSnapshotSummary({
+        round: runtime.round,
+        messages,
+        tools,
+      }),
+    })
+    taskStepRepo.updateStatus(contextSnapshotStep.id, 'completed')
 
     const seqNo = taskStepRepo.getNextSequenceNo(taskId)
     const modelStep = taskStepRepo.create({

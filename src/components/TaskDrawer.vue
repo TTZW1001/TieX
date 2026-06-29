@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useUiStore } from '@/stores/ui.store'
 import { useTaskStore } from '@/stores/task.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
@@ -9,7 +9,9 @@ import ArtifactCard from './ArtifactCard.vue'
 import CommandOutput from './CommandOutput.vue'
 import FileTree from './FileTree.vue'
 import MarkdownContent from './MarkdownContent.vue'
-import type { FileChangeInfo, ArtifactInfo, CommandSessionInfo, FileEntry } from '@/types/global'
+import type { FileChangeInfo, ArtifactInfo, CommandSessionInfo, FileEntry, ToolCallEntity, PermissionDecision, PermissionRequestInfo } from '@/types/global'
+import { getToolDisplayInfo, getToolStatusText } from '@/utils/tool-call-format'
+import { buildPermissionFields, getManualPlanDraft, getPermissionRiskClass, getPermissionRiskText } from '@/utils/permission-display'
 
 const uiStore = useUiStore()
 const taskStore = useTaskStore()
@@ -28,11 +30,19 @@ const loadingFilePreview = ref(false)
 const workspaceMemoryDraft = ref('')
 const savingWorkspaceMemory = ref(false)
 const rollingBack = ref(false)
+const loadingContext = ref(false)
+const contextGlobalMemory = ref('')
+const contextWorkspaceMemory = ref('')
+const contextConversationSummary = ref('')
+const decidingPermissionId = ref<string | null>(null)
+const drawerPermissionReasons = ref<Record<string, string>>({})
 const drawerTabs = [
   { key: 'workspace', label: '工作区' },
   { key: 'steps', label: '步骤' },
+  { key: 'context', label: '上下文' },
   { key: 'files', label: '工具调用' },
   { key: 'changes', label: '文件变更' },
+  { key: 'permissions', label: '确认' },
   { key: 'artifacts', label: '生成物' },
   { key: 'logs', label: '日志' },
 ] as const
@@ -40,10 +50,11 @@ const drawerTabs = [
 // 监听当前任务变化，加载文件变更和生成物
 watch(() => taskStore.currentTask?.id, async (taskId) => {
   if (taskId) {
-    await Promise.all([loadFileChanges(taskId), loadArtifacts(taskId)])
+    await Promise.all([loadFileChanges(taskId), loadArtifacts(taskId), loadTaskContext()])
   } else {
     fileChanges.value = []
     artifacts.value = []
+    clearTaskContext()
   }
 }, { immediate: true })
 
@@ -58,6 +69,95 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
 watch(() => workspaceStore.currentWorkspaceMemory, (value) => {
   workspaceMemoryDraft.value = value
 }, { immediate: true })
+
+const contextAgentBriefs = computed(() => {
+  return taskStore.steps
+    .filter((step) => step.step_type === 'agent_route' || step.step_type === 'agent_brief')
+    .map((step) => ({
+      id: step.id,
+      title: step.step_type === 'agent_route' ? '主对话 Agent 调度' : stepTitle(step),
+      status: step.status,
+      content: step.content?.trim() ?? '',
+    }))
+    .filter((item) => item.content)
+})
+
+const contextSnapshots = computed(() => {
+  return taskStore.steps
+    .filter((step) => step.step_type === 'context_snapshot')
+    .map((step) => ({
+      id: step.id,
+      status: step.status,
+      content: step.content?.trim() ?? '',
+      startedAt: step.started_at,
+    }))
+    .filter((item) => item.content)
+})
+
+const recentWorkspaceChanges = computed(() => {
+  return taskStore.conversationTasks
+    .flatMap((task) => taskStore.fileChangesByTaskId[task.id] ?? [])
+    .filter((change) => !workspaceStore.currentWorkspaceId || change.workspace_id === workspaceStore.currentWorkspaceId)
+    .sort((a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime())
+    .slice(0, 5)
+})
+
+const recentWorkspaceArtifacts = computed(() => {
+  return taskStore.conversationTasks
+    .flatMap((task) => taskStore.artifactsByTaskId[task.id] ?? [])
+    .filter((artifact) => !workspaceStore.currentWorkspaceId || artifact.workspace_id === workspaceStore.currentWorkspaceId)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 5)
+})
+
+function openChangeInTask(change: FileChangeInfo) {
+  taskStore.setCurrentTask(change.task_id)
+  uiStore.setDrawerTab('changes')
+}
+
+async function openArtifactFile(artifact: ArtifactInfo) {
+  try {
+    await window.tiex.artifact.openFile(artifact.id)
+  } catch (err) {
+    console.error('Failed to open artifact file:', err)
+  }
+}
+
+function contextText(value: string): string {
+  const trimmed = value.trim()
+  return trimmed || '暂无内容'
+}
+
+function clearTaskContext() {
+  contextGlobalMemory.value = ''
+  contextWorkspaceMemory.value = ''
+  contextConversationSummary.value = ''
+}
+
+async function loadTaskContext() {
+  const task = taskStore.currentTask
+  if (!window.tiex || !task) {
+    clearTaskContext()
+    return
+  }
+
+  loadingContext.value = true
+  try {
+    const [globalMemory, workspaceMemory, conversationSummary] = await Promise.all([
+      window.tiex.memory.getGlobal(),
+      task.workspaceId ? window.tiex.memory.getWorkspace(task.workspaceId) : Promise.resolve(null),
+      window.tiex.memory.getConversationSummary(task.conversationId),
+    ])
+    contextGlobalMemory.value = globalMemory ?? ''
+    contextWorkspaceMemory.value = workspaceMemory?.content ?? ''
+    contextConversationSummary.value = conversationSummary?.summary ?? ''
+  } catch (err) {
+    console.error('Failed to load task context:', err)
+    clearTaskContext()
+  } finally {
+    loadingContext.value = false
+  }
+}
 
 async function loadFileChanges(taskId: string) {
   loadingChanges.value = true
@@ -156,25 +256,52 @@ function canExpandStep(step: { step_type: string; content: string | null }) {
   return step.step_type === 'agent_brief' || step.step_type === 'implementation_result' || (step.content?.length ?? 0) > 160
 }
 
-/** 解析工具调用参数 */
-function parseArgs(args: string): string {
+function toolDisplay(call: ToolCallEntity) {
+  return getToolDisplayInfo(call)
+}
+
+function permissionStatusText(status: string): string {
+  if (status === 'pending') return '待确认'
+  if (status === 'approved') return '已批准'
+  if (status === 'rejected') return '已拒绝'
+  if (status === 'cancelled') return '已取消'
+  return status
+}
+
+function permissionScopeText(scope: string | null): string {
+  if (scope === 'once') return '允许一次'
+  if (scope === 'conversation') return '本次会话内允许'
+  return '无'
+}
+
+function permissionDecisionDisabled(request: PermissionRequestInfo): boolean {
+  return decidingPermissionId.value !== null || request.status !== 'pending'
+}
+
+async function decideDrawerPermission(request: PermissionRequestInfo, decision: PermissionDecision, decisionReason?: string | null) {
+  if (permissionDecisionDisabled(request)) return
+  decidingPermissionId.value = request.id
   try {
-    const obj = JSON.parse(args)
-    return JSON.stringify(obj, null, 2)
-  } catch {
-    return args
+    await window.tiex.permission.decide(request.id, decision, decisionReason)
+    if (taskStore.currentTask?.id) {
+      await taskStore.loadPermissionRequests(taskStore.currentTask.id)
+    }
+  } finally {
+    decidingPermissionId.value = null
   }
 }
 
-/** 解析工具调用结果 */
-function parseResult(result: string | null): string {
-  if (!result) return ''
-  try {
-    const obj = JSON.parse(result)
-    return JSON.stringify(obj, null, 2)
-  } catch {
-    return result
+async function rejectDrawerPermission(request: PermissionRequestInfo, source: 'permission_rejection' | 'manual_plan') {
+  const userReason = drawerPermissionReasons.value[request.id] ?? ''
+  if (source === 'manual_plan' || userReason.trim()) {
+    uiStore.setComposerDraft(getManualPlanDraft({
+      reason: request.reason,
+      target: request.target,
+      impactSummary: request.impact_summary,
+      userReason,
+    }), source)
   }
+  await decideDrawerPermission(request, 'rejected', userReason)
 }
 
 /** 从工具调用结果中提取命令会话信息 */
@@ -259,6 +386,14 @@ async function rollbackCurrentTask() {
           <span class="meta-item">工具: {{ taskStore.currentTask.toolCallCount }}</span>
         </div>
         <div class="task-actions">
+          <button
+            class="restore-btn"
+            :class="{ active: uiStore.activeDrawerTab === 'context' }"
+            @click="uiStore.setDrawerTab('context')"
+          >
+            <FileText :size="12" />
+            上下文
+          </button>
           <button class="restore-btn" @click="rollbackCurrentTask" :disabled="rollingBack">
             <RotateCcw :size="12" />
             {{ rollingBack ? '回滚中...' : '一键回滚任务' }}
@@ -293,6 +428,48 @@ async function rollbackCurrentTask() {
                 <FileTree @select="handleFileSelect" />
               </div>
               <div class="workspace-panel-preview">
+                <div class="workspace-assets-card">
+                  <div class="workspace-assets-head">
+                    <div>
+                      <div class="workspace-memory-title">最近资产</div>
+                      <div class="workspace-assets-subtitle">来自当前会话任务历史</div>
+                    </div>
+                    <span class="workspace-assets-count">{{ recentWorkspaceChanges.length + recentWorkspaceArtifacts.length }}</span>
+                  </div>
+                  <div class="workspace-assets-grid">
+                    <div class="asset-section">
+                      <div class="asset-section-title">文件变更</div>
+                      <button
+                        v-for="change in recentWorkspaceChanges"
+                        :key="change.id"
+                        class="asset-row"
+                        type="button"
+                        @click="openChangeInTask(change)"
+                      >
+                        <span class="asset-main">{{ change.relative_path }}</span>
+                        <span class="asset-meta">
+                          {{ change.operation }} · {{ change.status === 'reverted' ? '已恢复' : '生效中' }}
+                        </span>
+                      </button>
+                      <div v-if="recentWorkspaceChanges.length === 0" class="asset-empty">暂无文件变更</div>
+                    </div>
+                    <div class="asset-section">
+                      <div class="asset-section-title">生成物</div>
+                      <button
+                        v-for="artifact in recentWorkspaceArtifacts"
+                        :key="artifact.id"
+                        class="asset-row"
+                        type="button"
+                        @click="openArtifactFile(artifact)"
+                      >
+                        <span class="asset-main">{{ artifact.name }}</span>
+                        <span class="asset-meta">{{ artifact.artifact_type }} · {{ artifact.relative_path }}</span>
+                      </button>
+                      <div v-if="recentWorkspaceArtifacts.length === 0" class="asset-empty">暂无生成物</div>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="workspace-memory-card">
                   <div class="workspace-memory-head">
                     <div class="workspace-memory-title">工作区记忆</div>
@@ -359,6 +536,126 @@ async function rollbackCurrentTask() {
             <div v-if="taskStore.steps.length === 0" class="empty-tab">暂无步骤</div>
           </template>
 
+          <!-- Context tab -->
+          <template v-if="uiStore.activeDrawerTab === 'context'">
+            <div v-if="loadingContext" class="empty-tab">
+              <Loader2 :size="16" class="spin inline-loader" /> 加载中...
+            </div>
+            <template v-else>
+              <div class="context-grid">
+                <section class="context-card">
+                  <div class="context-card-head">
+                    <div>
+                      <div class="context-title">会话摘要</div>
+                      <div class="context-subtitle">用于压缩长对话里的旧信息</div>
+                    </div>
+                    <span class="context-tag">summary</span>
+                  </div>
+                  <MarkdownContent class="context-content" :content="contextText(contextConversationSummary)" />
+                </section>
+
+                <section class="context-card">
+                  <div class="context-card-head">
+                    <div>
+                      <div class="context-title">工作区记忆</div>
+                      <div class="context-subtitle">当前项目的约束、命令和偏好</div>
+                    </div>
+                    <span class="context-tag">workspace</span>
+                  </div>
+                  <MarkdownContent class="context-content" :content="contextText(contextWorkspaceMemory)" />
+                </section>
+
+                <section class="context-card">
+                  <div class="context-card-head">
+                    <div>
+                      <div class="context-title">全局记忆</div>
+                      <div class="context-subtitle">跨工作区长期偏好</div>
+                    </div>
+                    <span class="context-tag">global</span>
+                  </div>
+                  <MarkdownContent class="context-content" :content="contextText(contextGlobalMemory)" />
+                </section>
+
+                <section class="context-card">
+                  <div class="context-card-head">
+                    <div>
+                      <div class="context-title">协作 Agent 简报</div>
+                      <div class="context-subtitle">调度、资料整理和规则记忆的内部上下文</div>
+                    </div>
+                    <span class="context-tag">{{ contextAgentBriefs.length }}</span>
+                  </div>
+                  <div v-if="contextAgentBriefs.length === 0" class="context-empty">暂无协作简报</div>
+                  <div v-else class="context-brief-list">
+                    <details
+                      v-for="brief in contextAgentBriefs"
+                      :key="brief.id"
+                      class="context-brief"
+                    >
+                      <summary>
+                        <span>{{ brief.title }}</span>
+                        <b>{{ brief.status }}</b>
+                      </summary>
+                      <MarkdownContent class="context-content" :content="brief.content" />
+                    </details>
+                  </div>
+                </section>
+
+                <section class="context-card">
+                  <div class="context-card-head">
+                    <div>
+                      <div class="context-title">实际上下文快照</div>
+                      <div class="context-subtitle">每轮实现 Agent 请求前记录的上下文构成</div>
+                    </div>
+                    <span class="context-tag">{{ contextSnapshots.length }}</span>
+                  </div>
+                  <div v-if="contextSnapshots.length === 0" class="context-empty">暂无上下文快照</div>
+                  <div v-else class="context-brief-list">
+                    <details
+                      v-for="snapshot in contextSnapshots"
+                      :key="snapshot.id"
+                      class="context-brief"
+                      open
+                    >
+                      <summary>
+                        <span>{{ snapshot.content.split('\n')[0] || '上下文快照' }}</span>
+                        <b>{{ snapshot.status }}</b>
+                      </summary>
+                      <MarkdownContent class="context-content" :content="snapshot.content" />
+                    </details>
+                  </div>
+                </section>
+
+                <section class="context-card">
+                  <div class="context-card-head">
+                    <div>
+                      <div class="context-title">裁剪策略</div>
+                      <div class="context-subtitle">本轮模型上下文的固定规则</div>
+                    </div>
+                    <span class="context-tag">policy</span>
+                  </div>
+                  <div class="context-policy-list">
+                    <div class="context-policy-item">
+                      <span>最近消息</span>
+                      <b>最多 20 条</b>
+                    </div>
+                    <div class="context-policy-item">
+                      <span>工具事实</span>
+                      <b>以上一轮工具结果回传</b>
+                    </div>
+                    <div class="context-policy-item">
+                      <span>文件内容</span>
+                      <b>只通过工具读取片段</b>
+                    </div>
+                    <div class="context-policy-item">
+                      <span>最终回复</span>
+                      <b>以真实执行事实为准</b>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </template>
+          </template>
+
           <!-- Tool Calls tab -->
           <template v-if="uiStore.activeDrawerTab === 'files'">
             <div
@@ -366,15 +663,28 @@ async function rollbackCurrentTask() {
               :key="call.id"
               class="toolcall-row"
             >
+              <div class="toolcall-head">
+                <div class="toolcall-title-group">
+                  <span class="tool-name">{{ toolDisplay(call).title }}</span>
+                  <span class="tool-raw-name">{{ toolDisplay(call).verb }} · {{ call.tool_name }}</span>
+                </div>
+                <span class="tool-status" :class="`ts-${call.status}`">{{ getToolStatusText(call.status) }}</span>
+              </div>
+              <div class="toolcall-summary">
+                <div class="toolcall-summary-main">{{ toolDisplay(call).summary }}</div>
+                <div v-if="toolDisplay(call).detail" class="toolcall-summary-sub">{{ toolDisplay(call).detail }}</div>
+              </div>
+              <div v-if="toolDisplay(call).fields.length > 0" class="toolcall-fields">
+                <div v-for="field in toolDisplay(call).fields" :key="field.label" class="toolcall-field">
+                  <span>{{ field.label }}</span>
+                  <b>{{ field.value }}</b>
+                </div>
+              </div>
               <!-- run_command 使用 CommandOutput 组件 -->
               <template v-if="call.tool_name === 'run_command'">
-                <div class="toolcall-head">
-                  <span class="tool-name">{{ call.tool_name }}</span>
-                  <span class="tool-status" :class="`ts-${call.status}`">{{ call.status }}</span>
-                </div>
                 <details class="toolcall-details">
-                  <summary>参数</summary>
-                  <pre class="code-block">{{ parseArgs(call.arguments) }}</pre>
+                  <summary>原始参数</summary>
+                  <pre class="code-block">{{ toolDisplay(call).rawArguments }}</pre>
                 </details>
                 <CommandOutput
                   v-if="extractCommandSession(call)"
@@ -390,17 +700,13 @@ async function rollbackCurrentTask() {
               </template>
               <!-- 其他工具使用原有展示 -->
               <template v-else>
-                <div class="toolcall-head">
-                  <span class="tool-name">{{ call.tool_name }}</span>
-                  <span class="tool-status" :class="`ts-${call.status}`">{{ call.status }}</span>
-                </div>
-                <details class="toolcall-details">
-                  <summary>参数</summary>
-                  <pre class="code-block">{{ parseArgs(call.arguments) }}</pre>
+                <details v-if="toolDisplay(call).rawArguments" class="toolcall-details">
+                  <summary>原始参数</summary>
+                  <pre class="code-block">{{ toolDisplay(call).rawArguments }}</pre>
                 </details>
-                <details v-if="call.result" class="toolcall-details">
-                  <summary>结果</summary>
-                  <pre class="code-block">{{ parseResult(call.result) }}</pre>
+                <details v-if="toolDisplay(call).hasResult" class="toolcall-details">
+                  <summary>原始结果</summary>
+                  <pre class="code-block">{{ toolDisplay(call).rawResult }}</pre>
                 </details>
                 <div v-if="call.error_message" class="toolcall-error">
                   {{ call.error_message }}
@@ -444,6 +750,105 @@ async function rollbackCurrentTask() {
               </div>
               <div v-if="fileChanges.length === 0" class="empty-tab">暂无文件变更</div>
             </template>
+          </template>
+
+          <!-- Permissions tab -->
+          <template v-if="uiStore.activeDrawerTab === 'permissions'">
+            <div
+              v-for="request in taskStore.permissionRequests"
+              :key="request.id"
+              class="permission-card"
+              :class="`permission-${request.status}`"
+            >
+              <div class="permission-card-head">
+                <div class="permission-title-group">
+                  <div class="permission-title">{{ request.title }}</div>
+                  <div class="permission-meta">
+                    <span>{{ formatTime(request.requested_at) }}</span>
+                    <span>{{ request.permission_type }}</span>
+                  </div>
+                </div>
+                <div class="permission-badges">
+                  <span class="permission-status" :class="`ps-${request.status}`">
+                    {{ permissionStatusText(request.status) }}
+                  </span>
+                  <span class="permission-risk" :class="getPermissionRiskClass(request.risk_level)">
+                    {{ getPermissionRiskText(request.risk_level) }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="permission-facts">
+                <div
+                  v-for="field in buildPermissionFields({
+                    reason: request.reason,
+                    target: request.target,
+                    impactSummary: request.impact_summary,
+                    permissionType: request.permission_type,
+                  })"
+                  :key="field.label"
+                  class="permission-fact"
+                >
+                  <span>{{ field.label }}</span>
+                  <b>{{ field.value }}</b>
+                </div>
+                <div class="permission-fact">
+                  <span>授权范围</span>
+                  <b>{{ permissionScopeText(request.decision_scope) }}</b>
+                </div>
+                <div v-if="request.decided_at" class="permission-fact">
+                  <span>处理时间</span>
+                  <b>{{ formatTime(request.decided_at) }}</b>
+                </div>
+                <div v-if="request.decision_reason" class="permission-fact">
+                  <span>处理说明</span>
+                  <b>{{ request.decision_reason }}</b>
+                </div>
+              </div>
+
+              <div v-if="request.status === 'pending'" class="permission-decision-panel">
+                <label class="permission-reason">
+                  <span>拒绝说明（可选）</span>
+                  <textarea
+                    v-model="drawerPermissionReasons[request.id]"
+                    rows="2"
+                    placeholder="例如：先不要执行这个命令、改成只读检查、我会手动处理这一步。"
+                    :disabled="decidingPermissionId === request.id"
+                  />
+                </label>
+                <div class="permission-actions">
+                  <button
+                    class="restore-btn"
+                    :disabled="permissionDecisionDisabled(request)"
+                    @click="decideDrawerPermission(request, 'approved_once')"
+                  >
+                    允许一次
+                  </button>
+                  <button
+                    class="restore-btn"
+                    :disabled="permissionDecisionDisabled(request)"
+                    @click="decideDrawerPermission(request, 'approved_for_conversation')"
+                  >
+                    本次会话内允许
+                  </button>
+                  <button
+                    class="restore-btn"
+                    :disabled="permissionDecisionDisabled(request)"
+                    @click="rejectDrawerPermission(request, 'manual_plan')"
+                  >
+                    我来手动处理
+                  </button>
+                  <button
+                    class="restore-btn danger-action"
+                    :disabled="permissionDecisionDisabled(request)"
+                    @click="rejectDrawerPermission(request, 'permission_rejection')"
+                  >
+                    拒绝
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div v-if="taskStore.permissionRequests.length === 0" class="empty-tab">暂无确认记录</div>
           </template>
 
           <!-- Artifacts tab -->
@@ -585,6 +990,9 @@ async function rollbackCurrentTask() {
 
 .task-actions {
   margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .task-status {
@@ -626,7 +1034,7 @@ async function rollbackCurrentTask() {
 
 .drawer-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
   padding: 12px 14px 0;
   gap: 6px;
 }
@@ -668,6 +1076,107 @@ async function rollbackCurrentTask() {
   border-radius: 14px;
   padding: 12px;
   background: color-mix(in srgb, var(--sidebar-bg) 60%, var(--sidebar-surface));
+}
+
+.workspace-assets-card {
+  margin-bottom: 14px;
+  border: 1px solid var(--sidebar-border);
+  border-radius: 14px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--sidebar-bg) 54%, var(--sidebar-surface));
+}
+
+.workspace-assets-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.workspace-assets-subtitle {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.workspace-assets-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-surface) 86%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.workspace-assets-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.asset-section {
+  min-width: 0;
+}
+
+.asset-section-title {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.asset-row {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--sidebar-border) 62%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--sidebar-surface) 76%, transparent);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  margin-top: 6px;
+}
+
+.asset-row:hover {
+  background: var(--sidebar-item-hover);
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--sidebar-border));
+}
+
+.asset-main {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.asset-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.asset-empty {
+  padding: 10px 8px;
+  border: 1px dashed color-mix(in srgb, var(--sidebar-border) 68%, transparent);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
 }
 
 .workspace-memory-head {
@@ -850,6 +1359,147 @@ async function rollbackCurrentTask() {
   margin-bottom: 0;
 }
 
+.context-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.context-card {
+  border: 1px solid var(--sidebar-border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--sidebar-surface) 92%, transparent);
+  overflow: hidden;
+  box-shadow: var(--shadow-soft);
+}
+
+.context-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--sidebar-border) 72%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg) 44%, transparent);
+}
+
+.context-title {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.context-subtitle {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.context-tag {
+  flex: 0 0 auto;
+  border: 1px solid var(--sidebar-border);
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--sidebar-surface) 80%, transparent);
+  font-size: 10px;
+  line-height: 1;
+  font-family: 'Consolas', monospace;
+}
+
+.context-content {
+  padding: 12px 14px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.context-content :deep(p) {
+  margin: 0 0 8px;
+}
+
+.context-content :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.context-content :deep(ul),
+.context-content :deep(ol) {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+
+.context-empty {
+  padding: 18px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.context-brief-list {
+  display: grid;
+  gap: 0;
+}
+
+.context-brief {
+  border-top: 1px solid color-mix(in srgb, var(--sidebar-border) 62%, transparent);
+}
+
+.context-brief:first-child {
+  border-top: 0;
+}
+
+.context-brief summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 14px;
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.context-brief summary::-webkit-details-marker {
+  display: none;
+}
+
+.context-brief summary b {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.context-policy-list {
+  display: grid;
+  padding: 10px;
+  gap: 7px;
+}
+
+.context-policy-item {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 9px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--sidebar-bg) 54%, transparent);
+}
+
+.context-policy-item span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.context-policy-item b {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
 .step-sub {
   display: flex;
   gap: 8px;
@@ -897,13 +1547,29 @@ async function rollbackCurrentTask() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.toolcall-title-group {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .tool-name {
   font-weight: 600;
   font-size: 13px;
+  color: var(--text-strong);
+  line-height: 1.25;
+}
+
+.tool-raw-name {
+  color: var(--muted);
+  font-size: 11px;
   font-family: 'Consolas', monospace;
+  word-break: break-word;
 }
 
 .tool-status {
@@ -912,6 +1578,7 @@ async function rollbackCurrentTask() {
   border-radius: 999px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  flex: 0 0 auto;
 }
 
 .ts-completed {
@@ -933,6 +1600,56 @@ async function rollbackCurrentTask() {
 .toolcall-details {
   margin-top: 6px;
   font-size: 11px;
+}
+
+.toolcall-summary {
+  margin-bottom: 10px;
+}
+
+.toolcall-summary-main {
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.toolcall-summary-sub {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.toolcall-fields {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.toolcall-field {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--sidebar-border) 58%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--sidebar-bg) 50%, transparent);
+}
+
+.toolcall-field span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.toolcall-field b {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 .toolcall-details summary {
@@ -1032,6 +1749,178 @@ async function rollbackCurrentTask() {
   margin-top: 8px;
 }
 
+/* Permissions */
+.permission-card {
+  padding: 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--sidebar-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--sidebar-surface) 92%, transparent);
+}
+
+.permission-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.permission-title-group {
+  min-width: 0;
+}
+
+.permission-title {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.permission-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.permission-badges {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.permission-status,
+.permission-risk {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ps-pending {
+  color: var(--warning-strong);
+  background: var(--warning-soft);
+}
+
+.ps-approved {
+  color: var(--success-strong);
+  background: var(--success-soft);
+}
+
+.ps-rejected,
+.ps-cancelled {
+  color: var(--danger-strong);
+  background: var(--danger-soft);
+}
+
+.permission-risk.high,
+.permission-risk.blocked {
+  color: var(--danger-strong);
+  background: var(--danger-soft);
+}
+
+.permission-risk.medium {
+  color: var(--warning-strong);
+  background: var(--warning-soft);
+}
+
+.permission-risk.low {
+  color: var(--success-strong);
+  background: var(--success-soft);
+}
+
+.permission-facts {
+  display: grid;
+  gap: 6px;
+}
+
+.permission-fact {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--sidebar-border) 62%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg) 48%, transparent);
+}
+
+.permission-fact span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.permission-fact b {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.permission-decision-panel {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--sidebar-border) 62%, transparent);
+}
+
+.permission-reason {
+  display: grid;
+  gap: 6px;
+}
+
+.permission-reason span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.permission-reason textarea {
+  width: 100%;
+  min-height: 58px;
+  resize: vertical;
+  border: 1px solid color-mix(in srgb, var(--sidebar-border) 70%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--sidebar-bg) 48%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.permission-reason textarea:focus {
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--sidebar-border));
+  box-shadow: var(--focus-ring);
+}
+
+.permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.danger-action {
+  color: var(--danger-strong);
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--sidebar-surface));
+}
+
+.danger-action:hover:not(:disabled) {
+  color: var(--danger-strong);
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--danger) 12%, var(--sidebar-surface));
+}
+
 .restore-btn {
   display: inline-flex;
   align-items: center;
@@ -1050,6 +1939,12 @@ async function rollbackCurrentTask() {
   background: var(--sidebar-item-hover);
   color: var(--sidebar-text);
   border-color: color-mix(in srgb, var(--sidebar-text-soft) 16%, var(--sidebar-border));
+}
+
+.restore-btn.active {
+  background: var(--sidebar-item-active);
+  color: var(--sidebar-text);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--sidebar-border));
 }
 
 .restore-btn:disabled {
