@@ -85,6 +85,24 @@ export class MessageAttachmentRepository {
     }
   }
 
+  getByMessageIds(messageIds: string[]): MessageAttachment[] {
+    if (messageIds.length === 0) return []
+    const db = getDatabase()
+    const placeholders = messageIds.map(() => '?').join(', ')
+    try {
+      return db
+        .prepare(
+          `SELECT * FROM message_attachments
+           WHERE message_id IN (${placeholders})
+           ORDER BY created_at ASC`
+        )
+        .all(...messageIds) as MessageAttachment[]
+    } catch (err: any) {
+      if (/no such table/i.test(err?.message || '')) return []
+      throw err
+    }
+  }
+
   cloneForMessage(sourceMessageId: string, targetMessageId: string, targetConversationId: string): void {
     const attachments = this.getByMessageId(sourceMessageId)
     for (const attachment of attachments) {

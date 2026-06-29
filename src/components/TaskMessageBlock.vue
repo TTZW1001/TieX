@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import MarkdownIt from 'markdown-it'
 import type { ChatMessage } from '@/stores/chat.store'
 import ActivityProcessBlock, { type ProcessStreamItem } from './ActivityProcessBlock.vue'
+import MarkdownContent from './MarkdownContent.vue'
 
 const appIconUrl = new URL('../../icon.png', import.meta.url).href
 
 const props = defineProps<{
+  taskId: string
   summaryMessage: ChatMessage | null
   processItems: ProcessStreamItem[]
   running: boolean
+  taskTitle?: string | null
   agentBadges?: Array<{
     id: string
     label: string
@@ -17,17 +19,11 @@ const props = defineProps<{
   }>
 }>()
 
-const md = new MarkdownIt({
-  html: false,
-  linkify: true,
-  typographer: true,
-})
+const emit = defineEmits<{
+  (e: 'inspect', taskId: string): void
+}>()
 
 const hasProcess = computed(() => props.processItems.length > 0)
-const renderedSummary = computed(() => {
-  if (!props.summaryMessage?.content) return ''
-  return md.render(props.summaryMessage.content)
-})
 </script>
 
 <template>
@@ -60,11 +56,17 @@ const renderedSummary = computed(() => {
         :running="running"
       />
 
-      <div
+      <MarkdownContent
         v-if="summaryMessage?.content"
-        class="bubble-content markdown-body final-summary"
-        v-html="renderedSummary"
+        class="bubble-content final-summary"
+        :content="summaryMessage.content"
       />
+
+      <div class="message-actions">
+        <button class="inspect-btn" type="button" @click="emit('inspect', taskId)">
+          查看任务详情
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -173,5 +175,33 @@ const renderedSummary = computed(() => {
 
 .final-summary:first-child {
   margin-top: 0;
+}
+
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.inspect-btn {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-surface) 92%, transparent);
+  color: var(--sidebar-text-soft);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
+}
+
+.inspect-btn:hover {
+  color: var(--text-strong);
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 </style>

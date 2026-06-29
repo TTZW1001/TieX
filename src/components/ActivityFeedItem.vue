@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import MarkdownIt from 'markdown-it'
 import {
   Loader2,
   CheckCircle2,
@@ -14,6 +13,7 @@ import {
 } from 'lucide-vue-next'
 import CommandOutput from './CommandOutput.vue'
 import ArtifactCard from './ArtifactCard.vue'
+import MarkdownContent from './MarkdownContent.vue'
 import { useTaskStore } from '@/stores/task.store'
 import { useUiStore } from '@/stores/ui.store'
 import type { ArtifactInfo, CommandSessionInfo, PermissionDecision, PermissionRequestInfo } from '@/types/global'
@@ -78,12 +78,6 @@ const { entry } = defineProps<{
 const taskStore = useTaskStore()
 const uiStore = useUiStore()
 const processingPermissionId = ref<string | null>(null)
-const md = new MarkdownIt({
-  html: false,
-  linkify: true,
-  typographer: true,
-})
-
 const activePermissionId = computed(() => uiStore.currentPermissionRequest?.requestId || null)
 
 function kindLabel(kind: ActivityEntry['kind']): string {
@@ -175,10 +169,6 @@ function defaultExpanded(entry: ActivityEntry): boolean {
   return (entry.kind === 'permission' && entry.status === 'waiting') || entry.kind === 'command' || entry.kind === 'agent'
 }
 
-function renderMarkdown(content: string) {
-  return md.render(content)
-}
-
 async function submitPermissionDecision(request: PermissionRequestInfo, decision: PermissionDecision) {
   if (processingPermissionId.value) return
   processingPermissionId.value = request.id
@@ -233,7 +223,7 @@ async function handleManualPlan(request: PermissionRequestInfo) {
       </summary>
 
       <div class="activity-panel">
-        <div v-if="entry.detail" class="activity-detail markdown-body" v-html="renderMarkdown(entry.detail)" />
+        <MarkdownContent v-if="entry.detail" class="activity-detail" :content="entry.detail" />
 
         <div
           v-if="entry.kind === 'permission' && entry.status === 'waiting' && getPermissionRequest(entry.requestId)"
@@ -249,9 +239,9 @@ async function handleManualPlan(request: PermissionRequestInfo) {
           <button
             class="secondary-btn"
             :disabled="processingPermissionId === entry.requestId"
-            @click="submitPermissionDecision(getPermissionRequest(entry.requestId)!, 'approved_for_task')"
+            @click="submitPermissionDecision(getPermissionRequest(entry.requestId)!, 'approved_for_conversation')"
           >
-            本任务内允许
+            本次会话内允许
           </button>
           <button
             class="secondary-btn"
@@ -288,7 +278,7 @@ async function handleManualPlan(request: PermissionRequestInfo) {
         <span class="activity-time">{{ formatTime(entry.createdAt) }}</span>
         <span class="activity-badge" :class="statusClass(entry)">{{ statusLabel(entry) }}</span>
       </div>
-      <div v-if="entry.detail" class="activity-detail markdown-body" v-html="renderMarkdown(entry.detail)" />
+      <MarkdownContent v-if="entry.detail" class="activity-detail" :content="entry.detail" />
     </div>
   </div>
 </template>

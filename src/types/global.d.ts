@@ -246,6 +246,7 @@ export interface TaskInfo {
   id: string
   conversationId: string
   userMessageId: string | null
+  assistantMessageId: string | null
   providerId: string
   workspaceId: string | null
   permissionMode: string
@@ -369,7 +370,7 @@ export interface PermissionRequestInfo {
   decided_at: string | null
 }
 
-export type PermissionDecision = 'approved_once' | 'approved_for_task' | 'rejected'
+export type PermissionDecision = 'approved_once' | 'approved_for_conversation' | 'rejected'
 
 // 文件变更相关类型
 export interface FileChangeInfo {
@@ -410,6 +411,7 @@ export interface ArtifactInfo {
 // 命令执行相关类型
 export interface CommandSessionInfo {
   sessionId: string
+  taskId?: string
   command: string
   args: string[]
   status: 'running' | 'completed' | 'failed' | 'stopped' | 'timeout'
@@ -459,6 +461,7 @@ export interface TieXDesktopAPI {
     getById: (id: string) => Promise<ConversationInfo | null>
     updateTitle: (id: string, title: string) => Promise<void>
     updateProvider: (id: string, providerId: string | null) => Promise<void>
+    updateWorkspace: (id: string, workspaceId: string | null) => Promise<void>
     updatePermissionMode: (id: string, permissionMode: string) => Promise<void>
     branchFromMessage: (conversationId: string, messageId: string) => Promise<ConversationInfo>
     delete: (id: string) => Promise<{ ok: boolean; error?: string }>
@@ -498,7 +501,7 @@ export interface TieXDesktopAPI {
     search: (workspaceId: string, input: SearchFilesInput) => Promise<SearchFilesResult>
   }
   task: {
-    start: (request: CreateTaskRequest) => Promise<{ taskId: string }>
+    start: (request: CreateTaskRequest) => Promise<{ taskId: string; userMessageId: string }>
     stop: (taskId: string) => Promise<{ ok: boolean }>
     getById: (taskId: string) => Promise<TaskInfo | null>
     getByConversation: (conversationId: string) => Promise<TaskInfo[]>
@@ -527,6 +530,7 @@ export interface TieXDesktopAPI {
   command: {
     stop: (sessionId: string) => Promise<{ ok: boolean }>
     getOutput: (sessionId: string) => Promise<CommandOutputInfo | null>
+    getByTask: (taskId: string) => Promise<CommandSessionInfo[]>
   }
   shell: {
     openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>

@@ -2,12 +2,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings.store'
+import { useUiStore } from '@/stores/ui.store'
 import UsageDonutChart from '@/components/UsageDonutChart.vue'
 import TokenSeriesChart from '@/components/TokenSeriesChart.vue'
 
 const route = useRoute()
 const router = useRouter()
 const settingsStore = useSettingsStore()
+const uiStore = useUiStore()
 const testResult = ref<string | null>(null)
 const saveResult = ref<string | null>(null)
 const testSuccess = ref<boolean | null>(null)
@@ -153,6 +155,7 @@ async function removeProvider(id: string) {
 
 async function saveTaskSettings(message?: string) {
   await settingsStore.saveTaskPermissionSettings()
+  uiStore.setSidebarCollapsed(settingsStore.defaultSidebar === 'collapsed')
   await settingsStore.loadStatsOverview()
   showSaved(message)
 }

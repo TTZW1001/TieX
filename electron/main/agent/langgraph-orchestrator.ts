@@ -1,11 +1,13 @@
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph'
 import { MessageRepository } from '../database/repositories/message.repository'
 import { TaskStepRepository } from '../database/repositories/task-step.repository'
+import { taskEventBus } from '../shared/event-bus'
 import type { RuntimeContext } from './task-controller'
 import {
   type AgentRoutePlan,
   routeByResponder,
   runCollaboratorBrief,
+  enforceFinalReplyFacts,
   runImplementationPass,
   runResponderPass,
 } from './agent-runtime-core'
@@ -14,6 +16,7 @@ import {
   decideAfterResearch,
   decideAfterRoute,
 } from './langgraph-routing'
+import { buildExecutionFactSummary } from './execution-facts'
 
 const messageRepo = new MessageRepository()
 const taskStepRepo = new TaskStepRepository()
@@ -55,9 +58,26 @@ async function implementationNode(state: AgentGraphStateType) {
 }
 
 async function respondNode(state: AgentGraphStateType) {
-  const finalReply = await runResponderPass(state.runtime, state.implementationOutput)
+  const executionFacts = buildExecutionFactSummary(state.runtime.taskId)
+  const shouldBypassResponder =
+    !!state.implementationOutput.trim() &&
+    !state.researchNote.trim() &&
+    !state.memoryNote.trim() &&
+    executionFacts.hasSuccessfulWrite &&
+    !executionFacts.hasRejectedPermission
+
+  const finalReply = shouldBypassResponder
+    ? enforceFinalReplyFacts(state.implementationOutput, executionFacts)
+    : await runResponderPass(state.runtime, state.implementationOutput, state.assistantMessageId)
   messageRepo.updateContent(state.assistantMessageId, finalReply)
   messageRepo.setStreaming(state.assistantMessageId, 0)
+  taskEventBus.emit({
+    type: 'message:delta',
+    taskId: state.runtime.taskId,
+    messageId: state.assistantMessageId,
+    content: finalReply,
+    delta: finalReply,
+  })
 
   if (state.implementationOutput.trim()) {
     const implSeq = taskStepRepo.getNextSequenceNo(state.runtime.taskId)

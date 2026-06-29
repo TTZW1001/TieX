@@ -5,15 +5,18 @@ import {
   IPC_CONVERSATION_GET_BY_ID,
   IPC_CONVERSATION_UPDATE_TITLE,
   IPC_CONVERSATION_UPDATE_PROVIDER,
+  IPC_CONVERSATION_UPDATE_WORKSPACE,
   IPC_CONVERSATION_UPDATE_PERMISSION_MODE,
   IPC_CONVERSATION_BRANCH_FROM_MESSAGE,
   IPC_CONVERSATION_DELETE,
 } from '../../shared/ipc'
 import { ConversationRepository } from '../database/repositories/conversation.repository'
 import { ProviderRepository } from '../database/repositories/provider.repository'
+import { SettingsRepository } from '../database/repositories/settings.repository'
 
 const conversationRepo = new ConversationRepository()
 const providerRepo = new ProviderRepository()
+const settingsRepo = new SettingsRepository()
 
 export function registerConversationIpc(): void {
   ipcMain.handle(IPC_CONVERSATION_CREATE, async (_event, data?: Record<string, unknown>) => {
@@ -23,6 +26,10 @@ export function registerConversationIpc(): void {
       if (defaultProvider) {
         payload.provider_id = defaultProvider.id
       }
+    }
+    if (!payload.permission_mode) {
+      const hasWorkspace = typeof payload.workspace_id === 'string' && payload.workspace_id.trim().length > 0
+      payload.permission_mode = hasWorkspace ? settingsRepo.get('default_permission_mode') ?? 'read' : 'chat'
     }
     return conversationRepo.create(payload)
   })
@@ -65,6 +72,19 @@ export function registerConversationIpc(): void {
         throw new Error('Invalid conversation id')
       }
       conversationRepo.updateProvider(id, providerId)
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CONVERSATION_UPDATE_WORKSPACE,
+    async (_event, id: string, workspaceId: string | null) => {
+      if (!id || typeof id !== 'string') {
+        throw new Error('Invalid conversation id')
+      }
+      if (workspaceId !== null && (typeof workspaceId !== 'string' || !workspaceId.trim())) {
+        throw new Error('Invalid workspace id')
+      }
+      conversationRepo.updateWorkspace(id, workspaceId)
     }
   )
 

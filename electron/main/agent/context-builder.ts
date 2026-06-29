@@ -11,6 +11,8 @@ import { MessageRepository } from '../database/repositories/message.repository'
 import { MessageAttachmentRepository } from '../database/repositories/message-attachment.repository'
 import { toAttachmentContentParts } from '../services/attachment-utils'
 import { MemoryService } from '../services/memory.service'
+import { analyzeConversationCorrection, buildCorrectionNotice } from './conversation-corrections'
+import { summarizePendingToolFacts } from './execution-facts'
 
 const messageRepo = new MessageRepository()
 const attachmentRepo = new MessageAttachmentRepository()
@@ -101,17 +103,37 @@ export function buildContext(options: BuildContextOptions): {
     })
   }
 
+  const recentMessagesForSignal = messageRepo.getRecentByConversationId(options.conversationId, 8)
+  const correctionSignal = analyzeConversationCorrection(userContent, recentMessagesForSignal)
+  const correctionNotice = buildCorrectionNotice(correctionSignal)
+  if (correctionNotice) {
+    messages.push({
+      role: 'system',
+      content: correctionNotice,
+    })
+  }
+
+  const pendingFactNotice = summarizePendingToolFacts(pendingToolCalls)
+  if (pendingFactNotice) {
+    messages.push({
+      role: 'system',
+      content: pendingFactNotice,
+    })
+  }
+
   // 2. 会话历史
-  const historyMessages = messageRepo.getByConversationId(options.conversationId)
-  const attachments = attachmentRepo.getByConversationId(options.conversationId)
+  const recentHistory = messageRepo.getRecentByConversationId(options.conversationId, MAX_HISTORY_MESSAGES)
+  const attachments = attachmentRepo.getByMessageIds(recentHistory.map((message) => message.id))
   const attachmentsByMessage = new Map<string, typeof attachments>()
   for (const attachment of attachments) {
     const bucket = attachmentsByMessage.get(attachment.message_id) ?? []
     bucket.push(attachment)
     attachmentsByMessage.set(attachment.message_id, bucket)
   }
-  // 过滤掉当前任务的用户消息（避免重复），取最近的消息
-  const recentHistory = historyMessages.slice(-MAX_HISTORY_MESSAGES)
+
+  const lastAssistantMessage = [...recentHistory]
+    .reverse()
+    .find((message) => message.role === 'assistant' && message.content?.trim())
 
   for (const msg of recentHistory) {
     if (msg.role === 'user' || msg.role === 'assistant') {
@@ -129,9 +151,15 @@ export function buildContext(options: BuildContextOptions): {
           ] as any,
         })
       } else {
+        const content =
+          correctionSignal.deniesPriorAssistantResult &&
+          msg.role === 'assistant' &&
+          msg.id === lastAssistantMessage?.id
+            ? `【注意：用户随后否认或纠正了这条 assistant 的执行结论；其中关于已完成/已修改/已写入的说法不能当事实。】\n${msg.content}`
+            : msg.content
         messages.push({
           role: msg.role as 'user' | 'assistant',
-          content: msg.content,
+          content,
         })
       }
     }

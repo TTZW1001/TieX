@@ -104,6 +104,16 @@ export class ConversationRepository {
     )
   }
 
+  updateWorkspace(id: string, workspaceId: string | null): void {
+    const db = getDatabase()
+    const now = new Date().toISOString()
+    db.prepare('UPDATE conversations SET workspace_id = ?, updated_at = ? WHERE id = ?').run(
+      workspaceId,
+      now,
+      id,
+    )
+  }
+
   updatePermissionMode(id: string, permissionMode: string): void {
     const db = getDatabase()
     const now = new Date().toISOString()

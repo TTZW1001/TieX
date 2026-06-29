@@ -256,6 +256,7 @@ export interface TaskEntity {
   id: string
   conversation_id: string
   user_message_id: string | null
+  assistant_message_id: string | null
   provider_id: string
   workspace_id: string | null
   permission_mode: string
@@ -359,6 +360,7 @@ export interface TaskInfo {
   id: string
   conversationId: string
   userMessageId: string | null
+  assistantMessageId: string | null
   providerId: string
   workspaceId: string | null
   permissionMode: string
@@ -550,7 +552,7 @@ export interface PermissionRequestInfo {
 }
 
 /** 权限决策类型 */
-export type PermissionDecision = 'approved_once' | 'approved_for_task' | 'rejected'
+export type PermissionDecision = 'approved_once' | 'approved_for_conversation' | 'rejected'
 
 // ===== 文件变更相关类型 =====
 
@@ -597,6 +599,7 @@ export interface ArtifactInfo {
 /** 命令会话信息（前端使用） */
 export interface CommandSessionInfo {
   sessionId: string
+  taskId?: string | null
   command: string
   args: string[]
   status: 'running' | 'completed' | 'failed' | 'stopped' | 'timeout'

@@ -47,6 +47,8 @@ const api = {
       ipcRenderer.invoke('conversation:updateTitle', id, title),
     updateProvider: (id: string, providerId: string | null): Promise<void> =>
       ipcRenderer.invoke('conversation:updateProvider', id, providerId),
+    updateWorkspace: (id: string, workspaceId: string | null): Promise<void> =>
+      ipcRenderer.invoke('conversation:updateWorkspace', id, workspaceId),
     updatePermissionMode: (id: string, permissionMode: string): Promise<void> =>
       ipcRenderer.invoke('conversation:updatePermissionMode', id, permissionMode),
     branchFromMessage: (conversationId: string, messageId: string): Promise<any> =>
@@ -122,7 +124,7 @@ const api = {
       attachments?: Array<Record<string, unknown>>
       workspaceId?: string | null
       title?: string | null
-    }): Promise<{ taskId: string }> => ipcRenderer.invoke('task:start', request),
+    }): Promise<{ taskId: string; userMessageId: string }> => ipcRenderer.invoke('task:start', request),
     stop: (taskId: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('task:stop', taskId),
     getById: (taskId: string): Promise<any> => ipcRenderer.invoke('task:getById', taskId),
@@ -172,6 +174,8 @@ const api = {
       ipcRenderer.invoke('command:stop', sessionId),
     getOutput: (sessionId: string): Promise<any> =>
       ipcRenderer.invoke('command:getOutput', sessionId),
+    getByTask: (taskId: string): Promise<any[]> =>
+      ipcRenderer.invoke('command:getByTask', taskId),
   },
   shell: {
     /**

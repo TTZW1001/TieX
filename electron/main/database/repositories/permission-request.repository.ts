@@ -15,7 +15,7 @@ export interface PermissionRequestEntity {
   impact_summary: string | null
   risk_level: string
   status: string // pending | approved | rejected | cancelled
-  decision_scope: string | null // once | task
+  decision_scope: string | null // once | conversation
   requested_at: string
   decided_at: string | null
 }
@@ -82,14 +82,22 @@ export class PermissionRequestRepository {
       .all(taskId) as PermissionRequestEntity[]
   }
 
-  getApprovedForTask(taskId: string, permissionType: string): PermissionRequestEntity[] {
+  getApprovedForConversation(conversationId: string, permissionType: string): PermissionRequestEntity[] {
     const db = getDatabase()
     return db
-      .prepare("SELECT * FROM permission_requests WHERE task_id = ? AND permission_type = ? AND status = 'approved' AND decision_scope = 'task'")
-      .all(taskId, permissionType) as PermissionRequestEntity[]
+      .prepare(`
+        SELECT pr.*
+        FROM permission_requests pr
+        JOIN tasks t ON t.id = pr.task_id
+        WHERE t.conversation_id = ?
+          AND pr.permission_type = ?
+          AND pr.status = 'approved'
+          AND pr.decision_scope = 'conversation'
+      `)
+      .all(conversationId, permissionType) as PermissionRequestEntity[]
   }
 
-  updateDecision(id: string, status: 'approved' | 'rejected' | 'cancelled', decisionScope?: 'once' | 'task'): void {
+  updateDecision(id: string, status: 'approved' | 'rejected' | 'cancelled', decisionScope?: 'once' | 'conversation'): void {
     const db = getDatabase()
     const now = new Date().toISOString()
     db.prepare(
@@ -105,17 +113,36 @@ export class PermissionRequestRepository {
     ).run(now, taskId)
   }
 
-  hasTaskApproval(taskId: string, permissionType: string, target?: string): boolean {
+  hasConversationApproval(conversationId: string, permissionType: string, target?: string): boolean {
     const db = getDatabase()
     if (target) {
       const row = db
-        .prepare("SELECT id FROM permission_requests WHERE task_id = ? AND permission_type = ? AND target = ? AND status = 'approved' AND decision_scope = 'task' LIMIT 1")
-        .get(taskId, permissionType, target) as { id: string } | undefined
+        .prepare(`
+          SELECT pr.id
+          FROM permission_requests pr
+          JOIN tasks t ON t.id = pr.task_id
+          WHERE t.conversation_id = ?
+            AND pr.permission_type = ?
+            AND pr.target = ?
+            AND pr.status = 'approved'
+            AND pr.decision_scope = 'conversation'
+          LIMIT 1
+        `)
+        .get(conversationId, permissionType, target) as { id: string } | undefined
       return !!row
     }
     const row = db
-      .prepare("SELECT id FROM permission_requests WHERE task_id = ? AND permission_type = ? AND status = 'approved' AND decision_scope = 'task' LIMIT 1")
-      .get(taskId, permissionType) as { id: string } | undefined
+      .prepare(`
+        SELECT pr.id
+        FROM permission_requests pr
+        JOIN tasks t ON t.id = pr.task_id
+        WHERE t.conversation_id = ?
+          AND pr.permission_type = ?
+          AND pr.status = 'approved'
+          AND pr.decision_scope = 'conversation'
+        LIMIT 1
+      `)
+      .get(conversationId, permissionType) as { id: string } | undefined
     return !!row
   }
 }

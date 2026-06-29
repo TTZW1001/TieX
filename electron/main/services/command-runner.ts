@@ -6,6 +6,9 @@ import { spawn, ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { platform } from 'os'
 import { taskEventBus } from '../shared/event-bus'
+import { CommandSessionRepository } from '../database/repositories/command-session.repository'
+
+const commandSessionRepo = new CommandSessionRepository()
 
 export interface RunCommandInput {
   command: string
@@ -18,6 +21,7 @@ export interface RunCommandInput {
 
 export interface CommandSession {
   sessionId: string
+  taskId?: string
   command: string
   args: string[]
   status: 'running' | 'completed' | 'failed' | 'stopped' | 'timeout'
@@ -148,6 +152,7 @@ export async function runCommand(input: RunCommandInput): Promise<CommandSession
 
   const session: CommandSession = {
     sessionId,
+    taskId,
     command,
     args,
     status: 'running',
@@ -159,6 +164,18 @@ export async function runCommand(input: RunCommandInput): Promise<CommandSession
   }
 
   sessionMap.set(sessionId, session)
+  try {
+    commandSessionRepo.create({
+      session_id: sessionId,
+      task_id: taskId ?? null,
+      command,
+      args,
+      status: 'running',
+      started_at: session.startedAt,
+    })
+  } catch (err) {
+    console.error('[command-runner] failed to persist command session start:', err)
+  }
 
   if (taskId) {
     taskEventBus.emit({
@@ -202,6 +219,11 @@ export async function runCommand(input: RunCommandInput): Promise<CommandSession
         outputBuffer += chunk
       }
       session.output = outputBuffer + (stderrBuffer ? '\n[stderr]\n' + stderrBuffer : '')
+      try {
+        commandSessionRepo.appendOutput(sessionId, chunk, session.output, session.truncated)
+      } catch (err) {
+        console.error('[command-runner] failed to persist command stdout:', err)
+      }
 
       // 推送输出事件
       if (taskId) {
@@ -228,6 +250,11 @@ export async function runCommand(input: RunCommandInput): Promise<CommandSession
         stderrBuffer += chunk
       }
       session.output = outputBuffer + (stderrBuffer ? '\n[stderr]\n' + stderrBuffer : '')
+      try {
+        commandSessionRepo.appendOutput(sessionId, chunk, session.output, session.truncated)
+      } catch (err) {
+        console.error('[command-runner] failed to persist command stderr:', err)
+      }
 
       // 推送输出事件
       if (taskId) {
@@ -247,6 +274,18 @@ export async function runCommand(input: RunCommandInput): Promise<CommandSession
       session.status = 'timeout'
       session.completedAt = new Date().toISOString()
       processMap.delete(sessionId)
+      try {
+        commandSessionRepo.updateCompleted(
+          sessionId,
+          session.status,
+          session.exitCode,
+          session.output,
+          session.truncated,
+          session.completedAt
+        )
+      } catch (err) {
+        console.error('[command-runner] failed to persist command timeout:', err)
+      }
 
       await killProcessTree(childProcess.pid!)
 
@@ -276,6 +315,18 @@ export async function runCommand(input: RunCommandInput): Promise<CommandSession
         } else {
           session.status = 'failed'
         }
+      }
+      try {
+        commandSessionRepo.updateCompleted(
+          sessionId,
+          session.status,
+          session.exitCode,
+          session.output,
+          session.truncated,
+          session.completedAt
+        )
+      } catch (err) {
+        console.error('[command-runner] failed to persist command completion:', err)
       }
 
       if (taskId) {
@@ -308,6 +359,18 @@ export async function runCommand(input: RunCommandInput): Promise<CommandSession
       session.status = 'failed'
       session.output = (outputBuffer + (stderrBuffer ? '\n[stderr]\n' + stderrBuffer : '')) + `\n[错误] ${err.message}`
       session.completedAt = new Date().toISOString()
+      try {
+        commandSessionRepo.updateCompleted(
+          sessionId,
+          session.status,
+          session.exitCode,
+          session.output,
+          session.truncated,
+          session.completedAt
+        )
+      } catch (persistErr) {
+        console.error('[command-runner] failed to persist command error:', persistErr)
+      }
 
       if (taskId) {
         taskEventBus.emit({
@@ -337,6 +400,18 @@ export async function stopCommand(sessionId: string): Promise<void> {
   if (session) {
     session.status = 'stopped'
     session.completedAt = new Date().toISOString()
+    try {
+      commandSessionRepo.updateCompleted(
+        sessionId,
+        session.status,
+        session.exitCode,
+        session.output,
+        session.truncated,
+        session.completedAt
+      )
+    } catch (err) {
+      console.error('[command-runner] failed to persist command stop:', err)
+    }
   }
 
   await killProcessTree(childProcess.pid!)

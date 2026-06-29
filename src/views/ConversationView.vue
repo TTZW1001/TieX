@@ -6,6 +6,7 @@ import { useChatStore } from '@/stores/chat.store'
 import { useConversationStore } from '@/stores/conversation.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
 import { useTaskStore } from '@/stores/task.store'
+import { useUiStore } from '@/stores/ui.store'
 import type { ChatMessage } from '@/stores/chat.store'
 import MessageItem from '@/components/MessageItem.vue'
 import ChatComposer from '@/components/ChatComposer.vue'
@@ -18,21 +19,44 @@ const chatStore = useChatStore()
 const conversationStore = useConversationStore()
 const workspaceStore = useWorkspaceStore()
 const taskStore = useTaskStore()
+const uiStore = useUiStore()
 const route = useRoute()
 const router = useRouter()
 const messagesContainer = ref<HTMLElement | null>(null)
 const loadingMore = ref(false)
+const pendingProcessingScrollRequest = ref<number | null>(null)
+
+const currentConversation = computed(() =>
+  conversationStore.conversations.find((item) => item.id === conversationStore.currentConversationId) ?? null
+)
+const sessionWorkspaceId = computed(() => currentConversation.value?.workspace_id ?? null)
+const sessionWorkspaceName = computed(() => {
+  const workspaceId = sessionWorkspaceId.value
+  if (!workspaceId) return ''
+  if (workspaceStore.currentWorkspace?.id === workspaceId) {
+    return workspaceStore.currentWorkspace.name
+  }
+  return workspaceStore.workspaces.find((item) => item.id === workspaceId)?.name ?? ''
+})
 
 type FeedItem =
   | { id: string; type: 'message'; createdAt: string; message: typeof chatStore.messages[number] }
   | {
       id: string
       type: 'task-block'
+      taskId: string
       createdAt: string
       processItems: ProcessStreamItem[]
       summaryMessage: ChatMessage | null
       running: boolean
+      agentBadges?: Array<{
+        id: string
+        label: string
+        status: 'running' | 'completed' | 'failed'
+      }>
     }
+
+type TaskBlockFeedItem = Extract<FeedItem, { type: 'task-block' }>
 
 const activityMeta = computed(() => {
   if (taskStore.isRunning) {
@@ -55,38 +79,55 @@ const activityMeta = computed(() => {
   }
 })
 
+function isFinalMainResponderStep(step: { step_type: string; status: string; content?: string | null }): boolean {
+  const content = step.content?.trim() || ''
+  return step.step_type === 'agent_brief' &&
+    step.status === 'completed' &&
+    (content.includes('[主对话 Agent]') || content.includes('主对话 Agent'))
+}
+
+function agentTitleFromStep(content: string, stepType: string): string {
+  if (stepType === 'agent_route') return '主对话 Agent'
+  if (content.includes('[资料整理 Agent]') || content.includes('资料整理 Agent')) return '资料整理 Agent'
+  if (content.includes('[规则记忆 Agent]') || content.includes('规则记忆 Agent')) return '规则记忆 Agent'
+  if (content.includes('[主对话 Agent]') || content.includes('主对话 Agent')) return '主对话 Agent'
+  return '协作 Agent'
+}
+
+function stepStatus(status: string): 'running' | 'completed' | 'failed' {
+  return status === 'completed' ? 'completed' : status === 'failed' ? 'failed' : 'running'
+}
+
+function formatAgentStepDetail(content: string, stepType: string): string {
+  if (stepType !== 'agent_route') return content
+  const cleaned = content
+    .replace(/^\[主对话 Agent\]\s*/m, '')
+    .replace(/调用决策：/g, '**调用决策**：')
+    .replace(/原因：/g, '**原因**：')
+    .trim()
+  return cleaned || content
+}
+
 const agentEntries = computed<ActivityEntry[]>(() => {
-  const collaborators = taskStore.steps
-    .filter((step) => step.step_type === 'agent_brief')
+  const agentSteps = taskStore.steps
+    .filter((step) => step.step_type === 'agent_route' || step.step_type === 'agent_brief')
+    .filter((step) => !isFinalMainResponderStep(step))
     .map((step) => {
       const content = step.content?.trim() || ''
-      const title = content.includes('[资料整理 Agent]') || content.includes('资料整理 Agent')
-        ? '资料整理 Agent'
-        : content.includes('[规则记忆 Agent]') || content.includes('规则记忆 Agent')
-          ? '规则记忆 Agent'
-          : content.includes('[主对话 Agent]') || content.includes('主对话 Agent')
-            ? '主对话 Agent'
-            : '协作 Agent'
-      const status =
-        step.status === 'completed'
-          ? 'completed'
-          : step.status === 'failed'
-            ? 'failed'
-            : 'running'
 
       return {
         id: `agent-${step.id}`,
         kind: 'agent' as const,
         createdAt: step.created_at,
-        title,
-        status: status as 'running' | 'completed' | 'failed',
-        detail: content || undefined,
+        title: agentTitleFromStep(content, step.step_type),
+        status: stepStatus(step.status),
+        detail: content ? formatAgentStepDetail(content, step.step_type) : undefined,
       }
     })
 
   const currentTask = taskStore.currentTask
   if (!currentTask) {
-    return collaborators
+    return agentSteps
   }
 
   const hasImplementationWork =
@@ -94,7 +135,7 @@ const agentEntries = computed<ActivityEntry[]>(() => {
     taskStore.steps.some((step) => step.step_type === 'implementation_result' || step.step_type === 'model_request')
 
   if (!hasImplementationWork) {
-    return collaborators
+    return agentSteps
   }
 
   const implementationStatus =
@@ -105,7 +146,7 @@ const agentEntries = computed<ActivityEntry[]>(() => {
         : 'running'
 
   return [
-    ...collaborators,
+    ...agentSteps,
     {
       id: `agent-implementation-${currentTask.id}`,
       kind: 'agent' as const,
@@ -172,7 +213,7 @@ const activityEntries = computed<ActivityEntry[]>(() => {
     })
   }
 
-  for (const session of Array.from(taskStore.commandSessions.values())) {
+  for (const session of Array.from(taskStore.commandSessions.values()).filter((item) => item.taskId === currentTask?.id)) {
     list.push({
       id: `cmd-${session.sessionId}`,
       kind: 'command',
@@ -205,35 +246,54 @@ const agentBadges = computed(() => {
   }))
 })
 
-const currentTaskAssistantMessages = computed(() => {
-  const taskId = taskStore.currentTask?.id
-  if (!taskId) return [] as ChatMessage[]
-
-  return chatStore.messages.filter(
-    (message) => message.role === 'assistant' && message.taskId === taskId,
-  )
+const assistantMessagesByTaskId = computed(() => {
+  const groups = new Map<string, ChatMessage[]>()
+  for (const message of chatStore.messages) {
+    if (message.role !== 'assistant' || !message.taskId) continue
+    const bucket = groups.get(message.taskId) ?? []
+    bucket.push(message)
+    groups.set(message.taskId, bucket)
+  }
+  return groups
 })
 
-const taskSummaryMessage = computed<ChatMessage | null>(() => {
-  const assistantMessages = currentTaskAssistantMessages.value.filter((message) => message.content.trim())
-  if (!assistantMessages.length) return null
-  if (taskStore.isRunning || chatStore.isStreaming) return null
-  return assistantMessages[assistantMessages.length - 1] ?? null
+const messagesById = computed(() => {
+  const map = new Map<string, ChatMessage>()
+  for (const message of chatStore.messages) {
+    map.set(message.id, message)
+  }
+  return map
+})
+
+const visibleTaskIds = computed(() => {
+  const ids = new Set<string>(taskStore.conversationTasks.map((task) => task.id))
+  for (const taskId of assistantMessagesByTaskId.value.keys()) {
+    ids.add(taskId)
+  }
+  if (taskStore.currentTask?.id) {
+    ids.add(taskStore.currentTask.id)
+  }
+  return Array.from(ids).sort((leftId, rightId) => {
+    const leftMessages = assistantMessagesByTaskId.value.get(leftId) ?? []
+    const rightMessages = assistantMessagesByTaskId.value.get(rightId) ?? []
+    const leftTask = taskStore.conversationTasks.find((task) => task.id === leftId)
+    const rightTask = taskStore.conversationTasks.find((task) => task.id === rightId)
+    const leftCreatedAt = leftMessages[0]?.createdAt ?? leftTask?.createdAt ?? ''
+    const rightCreatedAt = rightMessages[0]?.createdAt ?? rightTask?.createdAt ?? ''
+    return new Date(leftCreatedAt).getTime() - new Date(rightCreatedAt).getTime()
+  })
 })
 
 const taskProcessItems = computed<ProcessStreamItem[]>(() => {
-  const summaryMessageId = taskSummaryMessage.value?.id ?? null
-  const noteItems: ProcessStreamItem[] = currentTaskAssistantMessages.value
-    .filter((message) => message.id !== summaryMessageId)
-    .filter((message) => message.content.trim())
-    .map((message) => ({
-      id: `note-${message.id}`,
-      kind: 'note' as const,
-      createdAt: message.createdAt,
-      content: message.content,
-      streaming: message.isStreaming === 1,
-    }))
-
+  const currentTaskId = taskStore.currentTask?.id ?? ''
+  const task = taskStore.currentTask
+  const assistantMessages = (assistantMessagesByTaskId.value.get(currentTaskId) ?? []).filter((message) => message.content.trim())
+  const anchoredSummaryMessage =
+    task?.assistantMessageId ? messagesById.value.get(task.assistantMessageId) ?? null : null
+  const summaryMessage = anchoredSummaryMessage?.content?.trim()
+    ? anchoredSummaryMessage
+    : assistantMessages[assistantMessages.length - 1] ?? null
+  const noteItems = buildTaskNoteItems(currentTaskId, summaryMessage)
   const activityItems: ProcessStreamItem[] = activityEntries.value.map((entry) => ({
     id: `activity-${entry.id}`,
     kind: 'activity' as const,
@@ -249,40 +309,232 @@ const taskProcessItems = computed<ProcessStreamItem[]>(() => {
   })
 })
 
+function buildTaskNoteItems(taskId: string, summaryMessage: ChatMessage | null): ProcessStreamItem[] {
+  const summaryMessageId = summaryMessage?.id ?? null
+  return (assistantMessagesByTaskId.value.get(taskId) ?? [])
+    .filter((message) => message.id !== summaryMessageId)
+    .filter((message) => message.content.trim())
+    .map((message) => ({
+      id: `note-${taskId}-${message.id}`,
+      kind: 'note' as const,
+      createdAt: message.createdAt,
+      content: message.content,
+      streaming: message.isStreaming === 1,
+    }))
+}
+
+function buildAgentEntriesForTask(taskId: string): ActivityEntry[] {
+  const task = taskStore.conversationTasks.find((item) => item.id === taskId) ?? null
+  const taskSteps = taskStore.stepsByTaskId[taskId] ?? []
+  const agentSteps = taskSteps
+    .filter((step) => step.step_type === 'agent_route' || step.step_type === 'agent_brief')
+    .filter((step) => !isFinalMainResponderStep(step))
+    .map((step) => {
+      const content = step.content?.trim() || ''
+
+      return {
+        id: `agent-${taskId}-${step.id}`,
+        kind: 'agent' as const,
+        createdAt: step.created_at,
+        title: agentTitleFromStep(content, step.step_type),
+        status: stepStatus(step.status),
+        detail: content ? formatAgentStepDetail(content, step.step_type) : undefined,
+      }
+    })
+
+  const hasImplementationWork =
+    (taskStore.toolCallsByTaskId[taskId]?.length ?? 0) > 0 ||
+    taskSteps.some((step) => step.step_type === 'implementation_result' || step.step_type === 'model_request')
+
+  if (!task || !hasImplementationWork) {
+    return agentSteps
+  }
+
+  const implementationStatus =
+    task.status === 'completed'
+      ? 'completed'
+      : task.status === 'failed' || task.status === 'stopped'
+        ? 'failed'
+        : 'running'
+
+  return [
+    ...agentSteps,
+    {
+      id: `agent-implementation-${taskId}`,
+      kind: 'agent' as const,
+      createdAt: task.createdAt,
+      title: '代码实现 Agent',
+      status: implementationStatus as 'running' | 'completed' | 'failed',
+      detail:
+        implementationStatus === 'running'
+          ? '负责实际调用工具、读取工作区并产出执行结论，供主对话 Agent 整理。'
+          : task.errorMessage || '负责实际调用工具、读取工作区并产出执行结论，供主对话 Agent 整理。',
+    },
+  ]
+}
+
+function buildTaskStatusEntry(taskId: string): ActivityEntry | null {
+  const task = taskStore.conversationTasks.find((item) => item.id === taskId)
+  if (!task) return null
+  const status =
+    task.status === 'completed'
+      ? 'completed'
+      : task.status === 'failed'
+        ? 'failed'
+        : task.status === 'stopped'
+          ? 'stopped'
+          : 'running'
+
+  return {
+    id: `task-${task.id}`,
+    kind: 'task',
+    createdAt: task.createdAt,
+    title: task.title || 'Agent 任务',
+    status,
+    detail: task.errorMessage || undefined,
+  }
+}
+
+function buildHistoricalActivityEntries(taskId: string): ActivityEntry[] {
+  const list: ActivityEntry[] = []
+  const taskEntry = buildTaskStatusEntry(taskId)
+  if (taskEntry) {
+    list.push(taskEntry)
+  }
+
+  const permissionRequests = taskStore.permissionRequestsByTaskId[taskId] ?? []
+  for (const request of permissionRequests) {
+    list.push({
+      id: `perm-${taskId}-${request.id}`,
+      kind: 'permission',
+      createdAt: request.requested_at,
+      title: request.title,
+      status: request.status === 'pending' ? 'waiting' : request.status === 'approved' ? 'approved' : 'rejected',
+      detail: request.reason || request.target || undefined,
+      requestId: request.id,
+    })
+  }
+
+  for (const agent of buildAgentEntriesForTask(taskId)) {
+    list.push(agent)
+  }
+
+  const toolCalls = taskStore.toolCallsByTaskId[taskId] ?? []
+  for (const toolCall of toolCalls) {
+    list.push({
+      id: `tool-${taskId}-${toolCall.id}`,
+      kind: 'tool',
+      createdAt: toolCall.created_at,
+      title: toolCall.tool_name,
+      status: toolCall.status === 'completed' ? 'completed' : toolCall.status === 'failed' ? 'failed' : 'running',
+      detail: toolCall.error_message || undefined,
+    })
+  }
+
+  const artifacts = taskStore.artifactsByTaskId[taskId] ?? []
+  for (const artifact of artifacts) {
+    list.push({
+      id: `artifact-${taskId}-${artifact.id}`,
+      kind: 'artifact',
+      createdAt: artifact.created_at,
+      title: artifact.name,
+      status: 'completed',
+      artifactId: artifact.id,
+    })
+  }
+
+  const commandSessions = taskStore.commandSessionsByTaskId[taskId] ?? []
+  for (const session of commandSessions) {
+    list.push({
+      id: `cmd-${taskId}-${session.sessionId}`,
+      kind: 'command',
+      createdAt: session.startedAt,
+      title: session.command || '命令执行',
+      status: session.status,
+      sessionId: session.sessionId,
+    })
+  }
+
+  return list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+}
+
+const taskBlocks = computed<TaskBlockFeedItem[]>(() => {
+  return visibleTaskIds.value.map((taskId) => {
+    const assistantMessages = (assistantMessagesByTaskId.value.get(taskId) ?? []).filter((message) => message.content.trim())
+    const task = taskStore.conversationTasks.find((item) => item.id === taskId) ?? null
+    const anchoredSummaryMessage =
+      task?.assistantMessageId ? messagesById.value.get(task.assistantMessageId) ?? null : null
+    const summaryMessage = anchoredSummaryMessage?.content?.trim()
+      ? anchoredSummaryMessage
+      : assistantMessages[assistantMessages.length - 1] ?? null
+    const isCurrentTask = taskStore.currentTask?.id === taskId
+    const processItems = isCurrentTask
+      ? taskProcessItems.value
+      : [
+          ...buildTaskNoteItems(taskId, summaryMessage),
+          ...buildHistoricalActivityEntries(taskId).map((entry) => ({
+            id: `activity-${entry.id}`,
+            kind: 'activity' as const,
+            createdAt: entry.createdAt,
+            entry,
+          })),
+        ].sort((a, b) => {
+          const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          if (timeDiff !== 0) return timeDiff
+          if (a.kind === b.kind) return 0
+          return a.kind === 'note' ? -1 : 1
+        })
+
+    const userAnchorMessage =
+      task?.userMessageId ? messagesById.value.get(task.userMessageId) ?? null : null
+    const createdAt = userAnchorMessage?.createdAt ?? summaryMessage?.createdAt ?? task?.createdAt ?? new Date().toISOString()
+
+    return {
+      id: `activity-group-${taskId}`,
+      type: 'task-block' as const,
+      taskId,
+      createdAt,
+      processItems,
+      summaryMessage,
+      running: isCurrentTask && (taskStore.isRunning || chatStore.isStreaming),
+      agentBadges: isCurrentTask ? agentBadges.value : undefined,
+    }
+  }).filter((item) => item.processItems.length > 0 || !!item.summaryMessage)
+})
+
 const mergedFeed = computed<FeedItem[]>(() => {
-  const currentTaskId = taskStore.currentTask?.id ?? null
+  const taskIdsInBlocks = new Set(taskBlocks.value.map((item) => item.taskId))
+  const summaryMessageIds = new Set(
+    taskBlocks.value
+      .map((item) => item.summaryMessage?.id ?? null)
+      .filter((id): id is string => !!id)
+  )
   const messageItems: FeedItem[] = chatStore.messages
-    .filter((message) => !(currentTaskId && message.role === 'assistant' && message.taskId === currentTaskId))
+    .filter((message) => {
+      if (message.role !== 'assistant') return true
+      if (summaryMessageIds.has(message.id)) return false
+      return !(message.taskId && taskIdsInBlocks.has(message.taskId))
+    })
     .map((message) => ({
     id: `msg-${message.id}`,
     type: 'message',
     createdAt: message.createdAt,
     message,
   }))
+  const items = [...messageItems, ...taskBlocks.value]
+  return items.sort((left, right) => {
+    const timeDiff = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+    if (timeDiff !== 0) return timeDiff
+    if (left.type === right.type) return 0
+    return left.type === 'message' ? -1 : 1
+  })
+})
 
-  const hasTaskBlock = !!currentTaskId && (taskProcessItems.value.length > 0 || !!taskSummaryMessage.value)
-  if (!hasTaskBlock) return messageItems
-
-  const taskMessages = currentTaskAssistantMessages.value
-  const firstTaskMessage = taskMessages[0] ?? taskSummaryMessage.value
-  const insertIndex = firstTaskMessage
-    ? messageItems.findIndex((item) => new Date(item.createdAt).getTime() > new Date(firstTaskMessage.createdAt).getTime())
-    : -1
-
-  const taskBlock: FeedItem = {
-      id: `activity-group-${currentTaskId ?? 'current'}`,
-      type: 'task-block',
-      createdAt: firstTaskMessage?.createdAt ?? taskProcessItems.value[0]?.createdAt ?? new Date().toISOString(),
-      processItems: taskProcessItems.value,
-      summaryMessage: taskSummaryMessage.value,
-      running: taskStore.isRunning || chatStore.isStreaming,
-    }
-
-  if (insertIndex === -1) {
-    return [...messageItems, taskBlock]
-  }
-
-  return [...messageItems.slice(0, insertIndex), taskBlock, ...messageItems.slice(insertIndex)]
+const processingScrollAnchorReady = computed(() => {
+  if (taskProcessItems.value.length > 0) return true
+  if ((assistantMessagesByTaskId.value.get(taskStore.currentTask?.id ?? '') ?? []).length > 0) return true
+  if (!taskStore.currentTask) return chatStore.messages.length > 0
+  return false
 })
 
 async function scrollToBottom() {
@@ -297,6 +549,10 @@ watch(
   async (newId) => {
     if (newId && typeof newId === 'string') {
       conversationStore.setCurrentConversation(newId)
+      const conversation = conversationStore.conversations.find((item) => item.id === newId) ?? null
+      if (conversation?.workspace_id && workspaceStore.currentWorkspaceId !== conversation.workspace_id) {
+        await workspaceStore.switchWorkspace(conversation.workspace_id)
+      }
       await chatStore.loadMessages(newId)
       await taskStore.loadConversationTasks(newId)
       const latestTask = taskStore.conversationTasks[0] ?? null
@@ -308,17 +564,24 @@ watch(
 )
 
 watch(
-  () => chatStore.messages.length,
-  () => scrollToBottom()
+  () => chatStore.scrollToBottomRequest,
+  (value) => {
+    pendingProcessingScrollRequest.value = value
+    if (processingScrollAnchorReady.value) {
+      void scrollToBottom().then(() => {
+        pendingProcessingScrollRequest.value = null
+      })
+    }
+  }
 )
 
 watch(
-  () => {
-    const msgs = chatStore.messages
-    if (msgs.length === 0) return ''
-    return msgs[msgs.length - 1].content
-  },
-  () => scrollToBottom()
+  () => processingScrollAnchorReady.value,
+  async (ready) => {
+    if (!ready || pendingProcessingScrollRequest.value === null) return
+    await scrollToBottom()
+    pendingProcessingScrollRequest.value = null
+  }
 )
 
 async function loadMore() {
@@ -357,19 +620,29 @@ async function branchFromMessage(message: ChatMessage) {
     console.error('Failed to branch conversation:', err)
   }
 }
+
+async function inspectTask(taskId: string) {
+  await taskStore.setCurrentTask(taskId)
+  uiStore.setDrawerTab('steps')
+  uiStore.openDrawer()
+}
+
+function asTaskBlock(item: FeedItem): TaskBlockFeedItem {
+  return item as TaskBlockFeedItem
+}
 </script>
 
 <template>
   <div class="chat-layout">
     <div class="chat-main">
-      <div class="session-strip" v-if="workspaceStore.hasWorkspace">
+      <div class="session-strip" v-if="sessionWorkspaceId">
         <div class="session-pill activity-pill" :class="activityMeta.tone">
           <span class="status-dot" v-if="activityMeta.tone === 'running'" />
           <span>{{ activityMeta.label }}</span>
         </div>
         <div class="session-pill workspace-tag">
           <FolderOpen :size="12" />
-          <span>{{ workspaceStore.currentWorkspaceName }}</span>
+          <span>{{ sessionWorkspaceName }}</span>
         </div>
         <div
           v-for="badge in agentBadges"
@@ -404,10 +677,12 @@ async function branchFromMessage(message: ChatMessage) {
           />
           <TaskMessageBlock
             v-else
-            :process-items="item.processItems"
-            :summary-message="item.summaryMessage"
-            :running="item.running"
-            :agent-badges="agentBadges"
+            :task-id="asTaskBlock(item).taskId"
+            :process-items="asTaskBlock(item).processItems"
+            :summary-message="asTaskBlock(item).summaryMessage"
+            :running="asTaskBlock(item).running"
+            :agent-badges="asTaskBlock(item).agentBadges"
+            @inspect="inspectTask"
           />
         </template>
 

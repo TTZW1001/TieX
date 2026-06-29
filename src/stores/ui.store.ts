@@ -48,15 +48,17 @@ export const useUiStore = defineStore('ui', () => {
   }
 
   function toggleSidebar() {
-    sidebarCollapsed.value = !sidebarCollapsed.value
-    // 持久化侧边栏状态
-    if (window.tiex?.settings) {
-      window.tiex.settings
-        .update('sidebar_collapsed', sidebarCollapsed.value ? 'true' : 'false')
-        .catch((err) => {
-          console.error('Failed to persist sidebar state:', err)
-        })
-    }
+    setSidebarCollapsed(!sidebarCollapsed.value)
+  }
+
+  function setSidebarCollapsed(collapsed: boolean, persist: boolean = true) {
+    sidebarCollapsed.value = collapsed
+    if (!persist || !window.tiex?.settings) return
+    window.tiex.settings
+      .update('sidebar_collapsed', collapsed ? 'true' : 'false')
+      .catch((err) => {
+        console.error('Failed to persist sidebar state:', err)
+      })
   }
 
   function toggleDrawer() {
@@ -140,6 +142,7 @@ export const useUiStore = defineStore('ui', () => {
     currentConfirmRequest,
     initSidebarState,
     toggleSidebar,
+    setSidebarCollapsed,
     toggleDrawer,
     openDrawer,
     closeDrawer,

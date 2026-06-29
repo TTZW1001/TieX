@@ -567,6 +567,72 @@ CREATE TABLE IF NOT EXISTS conversation_summaries (
 CREATE INDEX IF NOT EXISTS idx_messages_role_created ON messages(role, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_token_count ON messages(token_count);
 `,
+  '010_link_tasks_with_messages': `
+ALTER TABLE tasks ADD COLUMN assistant_message_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_tasks_user_message_id ON tasks(user_message_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_assistant_message_id ON tasks(assistant_message_id);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_sequence ON messages(conversation_id, sequence_no);
+
+UPDATE messages
+SET task_id = (
+  SELECT t.id
+  FROM tasks t
+  WHERE t.user_message_id = messages.id
+)
+WHERE task_id IS NULL
+  AND EXISTS (
+    SELECT 1
+    FROM tasks t
+    WHERE t.user_message_id = messages.id
+  );
+
+UPDATE tasks
+SET assistant_message_id = (
+  SELECT m.id
+  FROM messages m
+  WHERE m.conversation_id = tasks.conversation_id
+    AND m.role = 'assistant'
+    AND m.sequence_no > COALESCE((
+      SELECT um.sequence_no
+      FROM messages um
+      WHERE um.id = tasks.user_message_id
+    ), -1)
+    AND m.sequence_no < COALESCE((
+      SELECT MIN(next_um.sequence_no)
+      FROM tasks next_t
+      JOIN messages next_um ON next_um.id = next_t.user_message_id
+      WHERE next_t.conversation_id = tasks.conversation_id
+        AND next_um.sequence_no > COALESCE((
+          SELECT current_um.sequence_no
+          FROM messages current_um
+          WHERE current_um.id = tasks.user_message_id
+        ), -1)
+    ), 9223372036854775807)
+  ORDER BY m.sequence_no DESC
+  LIMIT 1
+)
+WHERE assistant_message_id IS NULL;
+`,
+  '011_create_command_sessions': `
+CREATE TABLE IF NOT EXISTS command_sessions (
+  session_id TEXT PRIMARY KEY,
+  task_id TEXT,
+  command TEXT NOT NULL,
+  args TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'running',
+  exit_code INTEGER,
+  output TEXT NOT NULL DEFAULT '',
+  truncated INTEGER NOT NULL DEFAULT 0,
+  started_at TEXT NOT NULL,
+  completed_at TEXT,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_command_sessions_task ON command_sessions(task_id);
+CREATE INDEX IF NOT EXISTS idx_command_sessions_status ON command_sessions(status);
+`,
 }
 
 function runMigrations(database: Database.Database): void {

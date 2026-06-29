@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import MarkdownIt from 'markdown-it'
 import { useUiStore } from '@/stores/ui.store'
 import { useTaskStore } from '@/stores/task.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
@@ -9,6 +8,7 @@ import DiffViewer from './DiffViewer.vue'
 import ArtifactCard from './ArtifactCard.vue'
 import CommandOutput from './CommandOutput.vue'
 import FileTree from './FileTree.vue'
+import MarkdownContent from './MarkdownContent.vue'
 import type { FileChangeInfo, ArtifactInfo, CommandSessionInfo, FileEntry } from '@/types/global'
 
 const uiStore = useUiStore()
@@ -28,12 +28,6 @@ const loadingFilePreview = ref(false)
 const workspaceMemoryDraft = ref('')
 const savingWorkspaceMemory = ref(false)
 const rollingBack = ref(false)
-const md = new MarkdownIt({
-  html: false,
-  linkify: true,
-  typographer: true,
-})
-
 const drawerTabs = [
   { key: 'workspace', label: '工作区' },
   { key: 'steps', label: '步骤' },
@@ -160,10 +154,6 @@ function stepTitle(step: { step_type: string; content: string | null }) {
 
 function canExpandStep(step: { step_type: string; content: string | null }) {
   return step.step_type === 'agent_brief' || step.step_type === 'implementation_result' || (step.content?.length ?? 0) > 160
-}
-
-function renderMarkdown(content: string | null) {
-  return md.render(content ?? '')
 }
 
 /** 解析工具调用参数 */
@@ -357,7 +347,7 @@ async function rollbackCurrentTask() {
                     <span class="step-title">{{ stepTitle(step) }}</span>
                     <span class="step-expand-label">展开全文</span>
                   </summary>
-                  <div class="step-full-content markdown-body" v-html="renderMarkdown(step.content)" />
+                  <MarkdownContent class="step-full-content" :content="step.content ?? ''" />
                 </details>
                 <div v-else class="step-title">{{ stepTitle(step) }}</div>
                 <div class="step-sub">

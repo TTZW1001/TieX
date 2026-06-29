@@ -52,6 +52,26 @@ export class TaskRepository {
       .all() as TaskEntity[]
   }
 
+  updateMessageLinks(id: string, links: { userMessageId?: string | null; assistantMessageId?: string | null }): void {
+    const db = getDatabase()
+    const now = new Date().toISOString()
+    const fields: string[] = ['updated_at = ?']
+    const values: any[] = [now]
+
+    if (links.userMessageId !== undefined) {
+      fields.push('user_message_id = ?')
+      values.push(links.userMessageId)
+    }
+
+    if (links.assistantMessageId !== undefined) {
+      fields.push('assistant_message_id = ?')
+      values.push(links.assistantMessageId)
+    }
+
+    values.push(id)
+    db.prepare(`UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values)
+  }
+
   updateStatus(
     id: string,
     status: TaskStatus,

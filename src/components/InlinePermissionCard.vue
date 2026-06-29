@@ -63,8 +63,8 @@ async function handleManualPlan() {
           <ShieldCheck :size="14" />
           允许一次
         </button>
-        <button class="secondary-btn" :disabled="isProcessing" @click="submitDecision('approved_for_task')">
-          本任务内允许
+        <button class="secondary-btn" :disabled="isProcessing" @click="submitDecision('approved_for_conversation')">
+          本次会话内允许
         </button>
         <button class="secondary-btn" :disabled="isProcessing" @click="handleManualPlan">
           <Wrench :size="14" />

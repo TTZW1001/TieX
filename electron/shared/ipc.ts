@@ -22,6 +22,7 @@ export const IPC_CONVERSATION_GET_RECENT = 'conversation:getRecent'
 export const IPC_CONVERSATION_GET_BY_ID = 'conversation:getById'
 export const IPC_CONVERSATION_UPDATE_TITLE = 'conversation:updateTitle'
 export const IPC_CONVERSATION_UPDATE_PROVIDER = 'conversation:updateProvider'
+export const IPC_CONVERSATION_UPDATE_WORKSPACE = 'conversation:updateWorkspace'
 export const IPC_CONVERSATION_UPDATE_PERMISSION_MODE = 'conversation:updatePermissionMode'
 export const IPC_CONVERSATION_BRANCH_FROM_MESSAGE = 'conversation:branchFromMessage'
 export const IPC_CONVERSATION_DELETE = 'conversation:delete'
@@ -94,6 +95,7 @@ export const IPC_ARTIFACT_DELETE = 'artifact:delete'
 // 命令执行相关
 export const IPC_COMMAND_STOP = 'command:stop'
 export const IPC_COMMAND_GET_OUTPUT = 'command:getOutput'
+export const IPC_COMMAND_GET_BY_TASK = 'command:getByTask'
 
 // 统计相关
 export const IPC_STATS_GET_OVERVIEW = 'stats:getOverview'

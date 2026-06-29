@@ -123,6 +123,7 @@ export class OpenAICompatibleProvider implements IModelProvider {
       return
     }
 
+    const streamEnabled = config.streamEnabled !== false
     const body: Record<string, unknown> = {
       model: config.model,
       messages: request.messages.map((message) => {
@@ -136,7 +137,7 @@ export class OpenAICompatibleProvider implements IModelProvider {
       }),
       temperature: request.temperature ?? config.temperature,
       max_tokens: request.maxTokens ?? config.maxTokens,
-      stream: true,
+      stream: streamEnabled,
     }
 
     if (request.tools && request.tools.length > 0) {
@@ -173,6 +174,45 @@ export class OpenAICompatibleProvider implements IModelProvider {
       const errorBody = await response.text().catch(() => '')
       const error = classifyError(response.status, errorBody)
       yield { type: 'error', error }
+      return
+    }
+
+    if (!streamEnabled) {
+      let parsed: any
+      try {
+        parsed = await response.json()
+      } catch {
+        yield {
+          type: 'error',
+          error: {
+            code: 'PROVIDER_RESPONSE_INVALID' as ProviderErrorCode,
+            message: '响应格式异常，未收到有效数据',
+          },
+        }
+        return
+      }
+
+      const choice = parsed.choices?.[0]
+      const message = choice?.message
+      const content = typeof message?.content === 'string' ? message.content : ''
+      const toolCalls = Array.isArray(message?.tool_calls) ? message.tool_calls : []
+      const finishReason = choice?.finish_reason ?? (toolCalls.length > 0 ? 'tool_calls' : 'stop')
+      const usage = parsed.usage
+        ? {
+            promptTokens: parsed.usage.prompt_tokens,
+            completionTokens: parsed.usage.completion_tokens,
+            totalTokens: parsed.usage.total_tokens,
+          }
+        : undefined
+
+      if (content) {
+        yield { type: 'delta', content }
+      }
+      if (toolCalls.length > 0) {
+        yield { type: 'tool_call_delta', delta: toolCalls }
+      }
+      yield { type: 'finish', reason: finishReason, usage }
+      yield { type: 'done', usage }
       return
     }
 

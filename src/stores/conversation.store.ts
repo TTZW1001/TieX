@@ -79,6 +79,22 @@ export const useConversationStore = defineStore('conversation', () => {
     }
   }
 
+  async function updateConversationWorkspace(id: string, workspaceId: string | null): Promise<boolean> {
+    if (!window.tiex) return false
+    try {
+      await window.tiex.conversation.updateWorkspace(id, workspaceId)
+      const conv = conversations.value.find((item) => item.id === id)
+      if (conv) {
+        conv.workspace_id = workspaceId
+        conv.updated_at = new Date().toISOString()
+      }
+      return true
+    } catch (err) {
+      console.error('Failed to update conversation workspace:', err)
+      return false
+    }
+  }
+
   async function updateConversationPermissionMode(
     id: string,
     permissionMode: 'chat' | 'read' | 'execute' | 'command'
@@ -154,6 +170,7 @@ export const useConversationStore = defineStore('conversation', () => {
     branchConversation,
     deleteConversation,
     updateConversationProvider,
+    updateConversationWorkspace,
     updateConversationPermissionMode,
     setCurrentConversation,
     updateConversationTitle,

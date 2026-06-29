@@ -42,8 +42,7 @@ export function registerTaskIpc(): void {
       if (!request?.content || !String(request.content).trim()) {
         throw new Error('任务内容不能为空')
       }
-      const taskId = await startAgentTask(request)
-      return { taskId }
+      return startAgentTask(request)
     }
   )
 

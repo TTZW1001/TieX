@@ -14,6 +14,7 @@ export interface ProviderConfig {
   temperature?: number
   maxTokens?: number
   timeoutMs: number
+  streamEnabled?: boolean
 }
 
 export interface ChatTextPart {

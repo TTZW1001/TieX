@@ -49,6 +49,21 @@ export class MessageRepository {
       .all(conversationId) as Message[]
   }
 
+  getRecentByConversationId(conversationId: string, limit: number): Message[] {
+    const db = getDatabase()
+    return db
+      .prepare(
+        `SELECT * FROM (
+          SELECT * FROM messages
+          WHERE conversation_id = ?
+          ORDER BY sequence_no DESC
+          LIMIT ?
+        ) recent
+        ORDER BY sequence_no ASC`
+      )
+      .all(conversationId, limit) as Message[]
+  }
+
   getById(id: string): Message | null {
     const db = getDatabase()
     const row = db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as
@@ -72,6 +87,16 @@ export class MessageRepository {
     const now = new Date().toISOString()
     db.prepare('UPDATE messages SET token_count = ?, updated_at = ? WHERE id = ?').run(
       tokenCount,
+      now,
+      id
+    )
+  }
+
+  updateTaskId(id: string, taskId: string | null): void {
+    const db = getDatabase()
+    const now = new Date().toISOString()
+    db.prepare('UPDATE messages SET task_id = ?, updated_at = ? WHERE id = ?').run(
+      taskId,
       now,
       id
     )

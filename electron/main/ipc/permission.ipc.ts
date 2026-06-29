@@ -20,7 +20,7 @@ export function registerPermissionIpc(): void {
       if (!requestId || typeof requestId !== 'string') {
         throw new Error('requestId 不能为空')
       }
-      if (!['approved_once', 'approved_for_task', 'rejected'].includes(decision)) {
+      if (!['approved_once', 'approved_for_conversation', 'rejected'].includes(decision)) {
         throw new Error(`无效的决策类型: ${decision}`)
       }
 

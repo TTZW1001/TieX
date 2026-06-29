@@ -67,9 +67,11 @@ type ActivityEntry =
     }
 
 const commandSessionList = computed(() => {
-  return Array.from(taskStore.commandSessions.values()).sort((a, b) => {
-    return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
-  })
+  return Array.from(taskStore.commandSessions.values())
+    .filter((session) => !taskStore.currentTask?.id || session.taskId === taskStore.currentTask.id)
+    .sort((a, b) => {
+      return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
+    })
 })
 
 const entries = computed<ActivityEntry[]>(() => {
@@ -319,9 +321,9 @@ async function handleManualPlan(request: PermissionRequestInfo) {
               <button
                 class="secondary-btn"
                 :disabled="processingPermissionId === entry.requestId"
-                @click="submitPermissionDecision(getPermissionRequest(entry.requestId)!, 'approved_for_task')"
+                @click="submitPermissionDecision(getPermissionRequest(entry.requestId)!, 'approved_for_conversation')"
               >
-                本任务内允许
+                本次会话内允许
               </button>
               <button
                 class="secondary-btn"

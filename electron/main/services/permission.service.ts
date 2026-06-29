@@ -9,7 +9,7 @@ import type { ToolRiskLevel } from '../../shared/types'
 
 const permissionRequestRepo = new PermissionRequestRepository()
 
-export type PermissionDecision = 'approved_once' | 'approved_for_task' | 'rejected'
+export type PermissionDecision = 'approved_once' | 'approved_for_conversation' | 'rejected'
 
 export interface PermissionRequestInput {
   taskId: string
@@ -69,8 +69,8 @@ class PermissionServiceImpl {
       case 'approved_once':
         permissionRequestRepo.updateDecision(requestId, 'approved', 'once')
         break
-      case 'approved_for_task':
-        permissionRequestRepo.updateDecision(requestId, 'approved', 'task')
+      case 'approved_for_conversation':
+        permissionRequestRepo.updateDecision(requestId, 'approved', 'conversation')
         break
       case 'rejected':
         permissionRequestRepo.updateDecision(requestId, 'rejected')
@@ -81,8 +81,8 @@ class PermissionServiceImpl {
   /**
    * 检查任务是否已有授权
    */
-  hasTaskApproval(taskId: string, toolName: string, target?: string): boolean {
-    return permissionRequestRepo.hasTaskApproval(taskId, toolName, target)
+  hasConversationApproval(conversationId: string, toolName: string, target?: string): boolean {
+    return permissionRequestRepo.hasConversationApproval(conversationId, toolName, target)
   }
 
   /**

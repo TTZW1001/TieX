@@ -255,23 +255,20 @@ export class ChatService {
    * 构建多轮上下文
    */
   private buildContext(conversationId: string, providerType: string): ChatMessage[] {
-    const allMessages = messageRepo.getByConversationId(conversationId)
+    const contextSlice = messageRepo.getRecentByConversationId(conversationId, MAX_CONTEXT_MESSAGES)
     const systemPrompt = buildSystemPrompt({ permissionMode: 'chat' })
     const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }]
     const conversationSummary = memoryService.getConversationSummary(conversationId)
     if (conversationSummary?.summary) {
       messages.push({ role: 'system', content: `会话摘要记忆：\n${conversationSummary.summary}` })
     }
-    const attachments = attachmentRepo.getByConversationId(conversationId)
+    const attachments = attachmentRepo.getByMessageIds(contextSlice.map((message) => message.id))
     const attachmentsByMessage = new Map<string, typeof attachments>()
     for (const attachment of attachments) {
       const bucket = attachmentsByMessage.get(attachment.message_id) ?? []
       bucket.push(attachment)
       attachmentsByMessage.set(attachment.message_id, bucket)
     }
-
-    // 取最近的 MAX_CONTEXT_MESSAGES 条消息
-    const contextSlice = allMessages.slice(-MAX_CONTEXT_MESSAGES)
 
     for (const msg of contextSlice) {
       if (msg.role === 'user' || msg.role === 'assistant') {
@@ -322,6 +319,7 @@ export class ChatService {
       temperature: provider.temperature ?? undefined,
       maxTokens: provider.max_tokens ?? undefined,
       timeoutMs: provider.timeout_ms,
+      streamEnabled: provider.stream_enabled !== 0,
     }
   }
 

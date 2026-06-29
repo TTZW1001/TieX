@@ -124,6 +124,7 @@ export class ProviderService {
       temperature: provider.temperature ?? undefined,
       maxTokens: provider.max_tokens ?? undefined,
       timeoutMs: provider.timeout_ms,
+      streamEnabled: provider.stream_enabled !== 0,
     }
 
     return getProvider(config.providerType).testConnection(config)
@@ -161,6 +162,7 @@ export class ProviderService {
       model: data.modelName.trim(),
       apiKey,
       timeoutMs: data.timeoutMs && data.timeoutMs > 0 ? data.timeoutMs : 60000,
+      streamEnabled: true,
     }
 
     return getProvider(config.providerType).testConnection(config)

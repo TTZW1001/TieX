@@ -15,17 +15,44 @@ const workspaceStore = useWorkspaceStore()
 
 const inputText = ref('')
 const animatedTitle = ref('')
+const heroTemplateIndex = ref(0)
 let typingTimer: ReturnType<typeof setTimeout> | null = null
 const canCreateConversation = computed(() => !!inputText.value.trim())
 const workspaceLabel = computed(() => (workspaceStore.hasWorkspace ? workspaceStore.currentWorkspaceName : '选择工作区'))
 const statusLabel = computed(() => (workspaceStore.hasWorkspace ? '已连接本地工作区' : '未绑定工作区'))
 const heroSubject = computed(() => (workspaceStore.hasWorkspace ? workspaceStore.currentWorkspaceName : 'TieX'))
 const heroUserName = computed(() => settingsStore.userDisplayName.trim())
-const heroTitle = computed(() =>
-  heroUserName.value
-    ? `${heroUserName.value}，我们应该在${heroSubject.value}做什么？`
-    : `我们应该在${heroSubject.value}做什么？`
-)
+const heroTitleTemplates = [
+  '{username}，我们应该在{workspace}做什么？',
+  '{username}，{timeGreeting}！',
+  '{username}，今天有什么计划？',
+  '你好！{username}🙂',
+  '{username}，欢迎回来！',
+  '{username}，有什么需要我帮忙的？',
+  '{username}，{workspace}一切就绪。',
+  '{username}，今天状态如何？',
+]
+
+function getTimeGreeting() {
+  const hour = new Date().getHours()
+  if (hour < 11) return '早上好'
+  if (hour < 14) return '中午好'
+  if (hour < 18) return '下午好'
+  return '晚上好'
+}
+
+function renderHeroTitle(template: string) {
+  const username = heroUserName.value || '你好'
+  return template
+    .split('{username}')
+    .join(username)
+    .split('{workspace}')
+    .join(heroSubject.value)
+    .split('{timeGreeting}')
+    .join(getTimeGreeting())
+}
+
+const heroTitle = computed(() => renderHeroTitle(heroTitleTemplates[heroTemplateIndex.value] ?? heroTitleTemplates[0]))
 
 async function selectWorkspace() {
   await workspaceStore.selectWorkspace()
@@ -88,6 +115,7 @@ function startTypewriter(text: string) {
 }
 
 onMounted(() => {
+  heroTemplateIndex.value = Math.floor(Math.random() * heroTitleTemplates.length)
   workspaceStore.loadWorkspaces()
   conversationStore.loadConversations()
   startTypewriter(heroTitle.value)

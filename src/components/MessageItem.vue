@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount } from 'vue'
-import MarkdownIt from 'markdown-it'
 import type { ChatMessage } from '@/stores/chat.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
+import MarkdownContent from './MarkdownContent.vue'
 
 const appIconUrl = new URL('../../icon.png', import.meta.url).href
 const props = defineProps<{
@@ -14,20 +14,6 @@ defineEmits<{
 }>()
 
 const workspaceStore = useWorkspaceStore()
-
-const md = new MarkdownIt({
-  html: false,
-  linkify: true,
-  typographer: true,
-})
-
-const renderedContent = computed(() => {
-  if (props.message.role === 'user') return props.message.content
-  if (props.message.contentType === 'markdown' || props.message.role === 'assistant') {
-    return md.render(props.message.content)
-  }
-  return props.message.content
-})
 
 const isUser = computed(() => props.message.role === 'user')
 const isStreaming = computed(() => props.message.isStreaming === 1)
@@ -208,7 +194,7 @@ onBeforeUnmount(() => {
       <div v-if="isUser" class="bubble-content user-content">
         {{ message.content }}
       </div>
-      <div v-else class="bubble-content markdown-body" v-html="renderedContent"></div>
+      <MarkdownContent v-else class="bubble-content" :content="message.content" />
       <div v-if="hasAttachments" class="attachment-strip">
         <button
           v-for="attachment in message.attachments"
@@ -474,24 +460,30 @@ onBeforeUnmount(() => {
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
 }
 
-.markdown-body pre {
-  background: var(--code-block-bg);
-  color: var(--code-block-text);
+.markdown-body pre,
+.markdown-body .shiki {
+  background: var(--code-block-bg) !important;
+  color: var(--code-block-text) !important;
   border: 1px solid var(--code-border);
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 16px;
   overflow-x: auto;
   margin: 10px 0;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
-.markdown-body pre code {
+.markdown-body pre code,
+.markdown-body .shiki code {
   background: transparent;
   color: inherit;
   border: 0;
   padding: 0;
   font-size: 0.85em;
-  line-height: 1.6;
+  line-height: 1.65;
+}
+
+.markdown-body .shiki .line {
+  min-height: 1.65em;
 }
 
 .markdown-body blockquote {

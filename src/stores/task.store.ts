@@ -23,19 +23,26 @@ export const useTaskStore = defineStore('task', () => {
   const toolCalls = ref<ToolCallEntity[]>([])
   // 操作日志
   const logs = ref<OperationLogEntity[]>([])
+  const stepsByTaskId = ref<Record<string, TaskStepEntity[]>>({})
+  const toolCallsByTaskId = ref<Record<string, ToolCallEntity[]>>({})
+  const logsByTaskId = ref<Record<string, OperationLogEntity[]>>({})
   // 任务生成物
   const artifacts = ref<ArtifactInfo[]>([])
+  const artifactsByTaskId = ref<Record<string, ArtifactInfo[]>>({})
   // 任务审批记录
   const permissionRequests = ref<PermissionRequestInfo[]>([])
+  const permissionRequestsByTaskId = ref<Record<string, PermissionRequestInfo[]>>({})
   // 是否正在运行任务
   const isRunning = ref(false)
   // 工具调用实时状态（按 toolCallId 索引）
   const toolCallStatus = ref<Map<string, { status: 'running' | 'completed' | 'failed'; result?: unknown; error?: string }>>(new Map())
   // 命令会话（按 sessionId 索引）
   const commandSessions = ref<Map<string, CommandSessionInfo>>(new Map())
+  const commandSessionsByTaskId = ref<Record<string, CommandSessionInfo[]>>({})
 
   // 事件监听清理函数
   let cleanupEvent: (() => void) | null = null
+  let refreshDetailsTimer: ReturnType<typeof setTimeout> | null = null
 
   /**
    * 设置任务事件监听
@@ -84,7 +91,7 @@ export const useTaskStore = defineStore('task', () => {
           toolCallStatus.value = new Map(toolCallStatus.value)
         }
         if (currentTask.value) {
-          refreshTaskDetails(currentTask.value.id)
+          scheduleTaskDetailsRefresh(currentTask.value.id)
         }
         break
       case 'tool:completed':
@@ -93,7 +100,7 @@ export const useTaskStore = defineStore('task', () => {
           toolCallStatus.value = new Map(toolCallStatus.value)
         }
         if (currentTask.value) {
-          refreshTaskDetails(currentTask.value.id)
+          scheduleTaskDetailsRefresh(currentTask.value.id)
         }
         break
       case 'tool:failed':
@@ -102,7 +109,7 @@ export const useTaskStore = defineStore('task', () => {
           toolCallStatus.value = new Map(toolCallStatus.value)
         }
         if (currentTask.value) {
-          refreshTaskDetails(currentTask.value.id)
+          scheduleTaskDetailsRefresh(currentTask.value.id)
         }
         break
       case 'message:delta':
@@ -116,7 +123,7 @@ export const useTaskStore = defineStore('task', () => {
         }
         // 刷新步骤和工具调用
         if (currentTask.value) {
-          refreshTaskDetails(currentTask.value.id)
+          scheduleTaskDetailsRefresh(currentTask.value.id, 0)
         }
         break
       case 'task:failed':
@@ -125,7 +132,7 @@ export const useTaskStore = defineStore('task', () => {
           currentTask.value.status = 'failed'
         }
         if (currentTask.value) {
-          refreshTaskDetails(currentTask.value.id)
+          scheduleTaskDetailsRefresh(currentTask.value.id, 0)
         }
         break
       case 'task:stopped':
@@ -134,7 +141,7 @@ export const useTaskStore = defineStore('task', () => {
           currentTask.value.status = 'stopped'
         }
         if (currentTask.value) {
-          refreshTaskDetails(currentTask.value.id)
+          scheduleTaskDetailsRefresh(currentTask.value.id, 0)
         }
         break
       case 'permission:requested':
@@ -177,6 +184,7 @@ export const useTaskStore = defineStore('task', () => {
         if (event.sessionId) {
           commandSessions.value.set(event.sessionId, {
             sessionId: event.sessionId,
+            taskId: event.taskId,
             command: event.command || '',
             args: event.args || [],
             status: 'running',
@@ -186,6 +194,10 @@ export const useTaskStore = defineStore('task', () => {
             startedAt: new Date().toISOString(),
             completedAt: null,
           })
+          commandSessionsByTaskId.value = {
+            ...commandSessionsByTaskId.value,
+            [event.taskId]: upsertCommandSession(commandSessionsByTaskId.value[event.taskId] ?? [], commandSessions.value.get(event.sessionId)!),
+          }
           commandSessions.value = new Map(commandSessions.value)
         }
         break
@@ -196,10 +208,15 @@ export const useTaskStore = defineStore('task', () => {
             existing.output += event.output || ''
             existing.truncated = event.truncated ?? false
             existing.status = 'running'
+            commandSessionsByTaskId.value = {
+              ...commandSessionsByTaskId.value,
+              [event.taskId]: upsertCommandSession(commandSessionsByTaskId.value[event.taskId] ?? [], existing),
+            }
             commandSessions.value = new Map(commandSessions.value)
           } else {
-            commandSessions.value.set(event.sessionId, {
+            const fallbackSession: CommandSessionInfo = {
               sessionId: event.sessionId,
+              taskId: event.taskId,
               command: event.command || '命令执行中',
               args: event.args || [],
               status: 'running',
@@ -208,7 +225,12 @@ export const useTaskStore = defineStore('task', () => {
               truncated: event.truncated ?? false,
               startedAt: new Date().toISOString(),
               completedAt: null,
-            })
+            }
+            commandSessions.value.set(event.sessionId, fallbackSession)
+            commandSessionsByTaskId.value = {
+              ...commandSessionsByTaskId.value,
+              [event.taskId]: upsertCommandSession(commandSessionsByTaskId.value[event.taskId] ?? [], fallbackSession),
+            }
             commandSessions.value = new Map(commandSessions.value)
           }
         }
@@ -221,9 +243,14 @@ export const useTaskStore = defineStore('task', () => {
             session.exitCode = event.exitCode ?? null
             session.output = event.output ?? session.output
             session.completedAt = new Date().toISOString()
+            commandSessionsByTaskId.value = {
+              ...commandSessionsByTaskId.value,
+              [event.taskId]: upsertCommandSession(commandSessionsByTaskId.value[event.taskId] ?? [], session),
+            }
           } else {
-            commandSessions.value.set(event.sessionId, {
+            const fallbackSession: CommandSessionInfo = {
               sessionId: event.sessionId,
+              taskId: event.taskId,
               command: '',
               args: [],
               status: 'completed',
@@ -232,7 +259,12 @@ export const useTaskStore = defineStore('task', () => {
               truncated: false,
               startedAt: new Date().toISOString(),
               completedAt: new Date().toISOString(),
-            })
+            }
+            commandSessions.value.set(event.sessionId, fallbackSession)
+            commandSessionsByTaskId.value = {
+              ...commandSessionsByTaskId.value,
+              [event.taskId]: upsertCommandSession(commandSessionsByTaskId.value[event.taskId] ?? [], fallbackSession),
+            }
           }
           commandSessions.value = new Map(commandSessions.value)
         }
@@ -243,6 +275,10 @@ export const useTaskStore = defineStore('task', () => {
           if (session) {
             session.status = 'failed'
             session.completedAt = new Date().toISOString()
+            commandSessionsByTaskId.value = {
+              ...commandSessionsByTaskId.value,
+              [event.taskId]: upsertCommandSession(commandSessionsByTaskId.value[event.taskId] ?? [], session),
+            }
           }
           commandSessions.value = new Map(commandSessions.value)
         }
@@ -253,6 +289,10 @@ export const useTaskStore = defineStore('task', () => {
           if (session) {
             session.status = 'stopped'
             session.completedAt = new Date().toISOString()
+            commandSessionsByTaskId.value = {
+              ...commandSessionsByTaskId.value,
+              [event.taskId]: upsertCommandSession(commandSessionsByTaskId.value[event.taskId] ?? [], session),
+            }
           }
           commandSessions.value = new Map(commandSessions.value)
         }
@@ -263,6 +303,10 @@ export const useTaskStore = defineStore('task', () => {
           if (session) {
             session.status = 'timeout'
             session.completedAt = new Date().toISOString()
+            commandSessionsByTaskId.value = {
+              ...commandSessionsByTaskId.value,
+              [event.taskId]: upsertCommandSession(commandSessionsByTaskId.value[event.taskId] ?? [], session),
+            }
           }
           commandSessions.value = new Map(commandSessions.value)
         }
@@ -291,6 +335,7 @@ export const useTaskStore = defineStore('task', () => {
       id: result.taskId,
       conversationId: request.conversationId,
       userMessageId: null,
+      assistantMessageId: null,
       providerId: '',
       workspaceId: request.workspaceId ?? null,
       permissionMode: 'execute',
@@ -344,6 +389,7 @@ export const useTaskStore = defineStore('task', () => {
         const timeB = new Date(b.createdAt).getTime()
         return timeB - timeA
       })
+      await preloadConversationTaskHistory(conversationTasks.value.map((task) => task.id))
     } catch (err) {
       console.error('Failed to load conversation tasks:', err)
     }
@@ -372,6 +418,7 @@ export const useTaskStore = defineStore('task', () => {
           refreshTaskDetails(taskId),
           loadArtifacts(taskId),
           loadPermissionRequests(taskId),
+          loadCommandSessions(taskId),
         ])
         isRunning.value = task.status === 'running' || task.status === 'executing_tool' || task.status === 'pending'
         if (isRunning.value) {
@@ -394,31 +441,101 @@ export const useTaskStore = defineStore('task', () => {
         window.tiex.task.getToolCalls(taskId),
         window.tiex.task.getLogs(taskId),
       ])
-      steps.value = taskSteps
-      toolCalls.value = taskToolCalls
-      logs.value = taskLogs
+      stepsByTaskId.value = { ...stepsByTaskId.value, [taskId]: taskSteps }
+      toolCallsByTaskId.value = { ...toolCallsByTaskId.value, [taskId]: taskToolCalls }
+      logsByTaskId.value = { ...logsByTaskId.value, [taskId]: taskLogs }
+      if (currentTask.value?.id === taskId) {
+        steps.value = taskSteps
+        toolCalls.value = taskToolCalls
+        logs.value = taskLogs
+      }
     } catch (err) {
       console.error('Failed to refresh task details:', err)
     }
   }
 
+  async function preloadConversationTaskHistory(taskIds: string[]) {
+    if (!window.tiex || taskIds.length === 0) return
+    const uniqueTaskIds = Array.from(new Set(taskIds)).filter((taskId) => !!taskId)
+    await Promise.all(uniqueTaskIds.map(async (taskId) => {
+      await Promise.all([
+        refreshTaskDetails(taskId),
+        loadArtifacts(taskId),
+        loadPermissionRequests(taskId),
+        loadCommandSessions(taskId),
+      ])
+    }))
+  }
+
+  function upsertCommandSession(list: CommandSessionInfo[], session: CommandSessionInfo): CommandSessionInfo[] {
+    const index = list.findIndex((item) => item.sessionId === session.sessionId)
+    const next = [...list]
+    if (index >= 0) {
+      next[index] = { ...next[index], ...session }
+    } else {
+      next.push(session)
+    }
+    return next.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())
+  }
+
+  function scheduleTaskDetailsRefresh(taskId: string, delayMs: number = 120) {
+    if (refreshDetailsTimer) {
+      clearTimeout(refreshDetailsTimer)
+      refreshDetailsTimer = null
+    }
+    refreshDetailsTimer = setTimeout(() => {
+      refreshDetailsTimer = null
+      refreshTaskDetails(taskId)
+    }, delayMs)
+  }
+
   async function loadArtifacts(taskId: string) {
     if (!window.tiex) return
     try {
-      artifacts.value = await window.tiex.artifact.getByTask(taskId)
+      const taskArtifacts = await window.tiex.artifact.getByTask(taskId)
+      artifactsByTaskId.value = { ...artifactsByTaskId.value, [taskId]: taskArtifacts }
+      if (currentTask.value?.id === taskId) {
+        artifacts.value = taskArtifacts
+      }
     } catch (err) {
       console.error('Failed to load artifacts:', err)
-      artifacts.value = []
+      artifactsByTaskId.value = { ...artifactsByTaskId.value, [taskId]: [] }
+      if (currentTask.value?.id === taskId) {
+        artifacts.value = []
+      }
     }
   }
 
   async function loadPermissionRequests(taskId: string) {
     if (!window.tiex) return
     try {
-      permissionRequests.value = await window.tiex.permission.getByTask(taskId)
+      const taskPermissionRequests = await window.tiex.permission.getByTask(taskId)
+      permissionRequestsByTaskId.value = { ...permissionRequestsByTaskId.value, [taskId]: taskPermissionRequests }
+      if (currentTask.value?.id === taskId) {
+        permissionRequests.value = taskPermissionRequests
+      }
     } catch (err) {
       console.error('Failed to load permission requests:', err)
-      permissionRequests.value = []
+      permissionRequestsByTaskId.value = { ...permissionRequestsByTaskId.value, [taskId]: [] }
+      if (currentTask.value?.id === taskId) {
+        permissionRequests.value = []
+      }
+    }
+  }
+
+  async function loadCommandSessions(taskId: string) {
+    if (!window.tiex) return
+    try {
+      const taskCommandSessions = await window.tiex.command.getByTask(taskId)
+      commandSessionsByTaskId.value = { ...commandSessionsByTaskId.value, [taskId]: taskCommandSessions }
+      const nextMap = new Map(commandSessions.value)
+      for (const session of taskCommandSessions) {
+        nextMap.set(session.sessionId, session)
+      }
+      commandSessions.value = nextMap
+    } catch (err) {
+      console.error('Failed to load command sessions:', err)
+      commandSessionsByTaskId.value = { ...commandSessionsByTaskId.value, [taskId]: [] }
     }
   }
 
@@ -426,16 +543,26 @@ export const useTaskStore = defineStore('task', () => {
    * 清理状态
    */
   function clear() {
+    if (refreshDetailsTimer) {
+      clearTimeout(refreshDetailsTimer)
+      refreshDetailsTimer = null
+    }
     currentTask.value = null
     conversationTasks.value = []
     steps.value = []
+    stepsByTaskId.value = {}
     toolCalls.value = []
+    toolCallsByTaskId.value = {}
     logs.value = []
+    logsByTaskId.value = {}
     artifacts.value = []
+    artifactsByTaskId.value = {}
     permissionRequests.value = []
+    permissionRequestsByTaskId.value = {}
     isRunning.value = false
     toolCallStatus.value = new Map()
     commandSessions.value = new Map()
+    commandSessionsByTaskId.value = {}
     removeTaskEventListener()
   }
 
@@ -443,21 +570,29 @@ export const useTaskStore = defineStore('task', () => {
     currentTask,
     conversationTasks,
     steps,
+    stepsByTaskId,
     toolCalls,
+    toolCallsByTaskId,
     logs,
+    logsByTaskId,
     artifacts,
+    artifactsByTaskId,
     permissionRequests,
+    permissionRequestsByTaskId,
     isRunning,
     toolCallStatus,
     commandSessions,
+    commandSessionsByTaskId,
     startTask,
     stopTask,
     rollbackTask,
     loadConversationTasks,
     setCurrentTask,
     refreshTaskDetails,
+    preloadConversationTaskHistory,
     loadArtifacts,
     loadPermissionRequests,
+    loadCommandSessions,
     clear,
     setupTaskEventListener,
     removeTaskEventListener,

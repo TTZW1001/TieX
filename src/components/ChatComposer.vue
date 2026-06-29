@@ -25,13 +25,26 @@ const showStopButton = computed(() => taskStore.isRunning || chatStore.isStreami
 
 type ComposerStatusTone = 'running' | 'ready' | 'warning' | 'danger' | 'idle'
 
+const currentConversation = computed(() =>
+  conversationStore.conversations.find((item) => item.id === conversationStore.currentConversationId) ?? null
+)
+const effectiveWorkspaceId = computed(() => currentConversation.value?.workspace_id ?? null)
+const effectiveWorkspace = computed(() => {
+  const workspaceId = effectiveWorkspaceId.value
+  if (!workspaceId) return null
+  if (workspaceStore.currentWorkspace?.id === workspaceId) {
+    return workspaceStore.currentWorkspace
+  }
+  return workspaceStore.workspaces.find((item) => item.id === workspaceId) ?? null
+})
+
 const statusTone = computed<ComposerStatusTone>(() => {
   const taskStatus = taskStore.currentTask?.status
 
   if (taskStore.isRunning || chatStore.isStreaming) return 'running'
   if (taskStatus === 'failed') return 'danger'
   if (taskStatus === 'stopped' || taskStatus === 'waiting_permission') return 'warning'
-  if (workspaceStore.hasWorkspace) return 'ready'
+  if (effectiveWorkspaceId.value) return 'ready'
   return 'idle'
 })
 
@@ -41,14 +54,11 @@ const statusText = computed(() => {
   if (taskStore.currentTask?.status === 'failed') return '上一轮任务执行失败'
   if (taskStore.currentTask?.status === 'stopped') return '上一轮任务已停止'
   if (taskStore.currentTask?.status === 'waiting_permission') return '等待你确认后继续'
-  if (workspaceStore.hasWorkspace) return `当前工作区：${workspaceStore.currentWorkspaceName}`
+  if (effectiveWorkspace.value) return `当前工作区：${effectiveWorkspace.value.name}`
   return '未绑定工作区'
 })
 
 const canSend = computed(() => (!!inputText.value.trim() || attachments.value.length > 0) && !showStopButton.value)
-const currentConversation = computed(() =>
-  conversationStore.conversations.find((item) => item.id === conversationStore.currentConversationId) ?? null
-)
 const currentProvider = computed(() => {
   const provider = settingsStore.providers.find((item) => item.id === (currentConversation.value?.provider_id ?? settingsStore.providerId))
   return provider ?? null
@@ -64,13 +74,13 @@ const attachmentLabel = computed(() => {
   return `已附加 ${attachments.value.length} 个文件`
 })
 const currentPermissionMode = computed(() => {
-  if (!workspaceStore.hasWorkspace) return 'chat'
+  if (!effectiveWorkspaceId.value) return 'chat'
   const mode = currentConversation.value?.permission_mode
   if (mode === 'read' || mode === 'execute' || mode === 'command') return mode
   return settingsStore.defaultPermissionMode
 })
 const permissionModeHint = computed(() => {
-  if (!workspaceStore.hasWorkspace) return '未绑定工作区时仅聊天，不会调用本地工具。'
+  if (!effectiveWorkspaceId.value) return '未绑定工作区时仅聊天，不会调用本地工具。'
   if (currentPermissionMode.value === 'read') return '只读查看工作区，不改文件，也不执行命令。'
   if (currentPermissionMode.value === 'execute') return '允许读写文件；是否弹确认由“修改文件前请求确认”决定。'
   if (currentPermissionMode.value === 'command') {
@@ -106,9 +116,9 @@ async function send() {
   if (fileInput.value) fileInput.value.value = ''
 
   try {
-    if (workspaceStore.currentWorkspaceId) {
+    if (effectiveWorkspaceId.value) {
       const taskId = await chatStore.sendAgentMessage(conversationId, content, {
-        workspaceId: workspaceStore.currentWorkspaceId,
+        workspaceId: effectiveWorkspaceId.value,
         attachments: currentAttachments,
       })
       if (taskId) {
@@ -132,7 +142,18 @@ function stop() {
 }
 
 async function selectWorkspace() {
-  await workspaceStore.selectWorkspace()
+  const workspace = await workspaceStore.selectWorkspace()
+  const conversation = currentConversation.value
+  if (!workspace || !conversation) return
+
+  const workspaceUpdated = await conversationStore.updateConversationWorkspace(conversation.id, workspace.id)
+  if (!workspaceUpdated) return
+
+  if (conversation.permission_mode === 'chat') {
+    await conversationStore.updateConversationPermissionMode(conversation.id, settingsStore.defaultPermissionMode)
+  }
+
+  await conversationStore.loadConversations()
 }
 
 function triggerAttachmentPicker() {
@@ -212,7 +233,7 @@ onBeforeUnmount(() => {
         v-model="inputText"
         @keydown.enter.exact.prevent="send"
         :disabled="showStopButton"
-        :placeholder="workspaceStore.hasWorkspace ? '描述你想让 TieX 在当前工作区完成的任务' : '输入你想讨论的问题，或先选择一个工作区'"
+        :placeholder="effectiveWorkspaceId ? '描述你想让 TieX 在当前工作区完成的任务' : '输入你想讨论的问题，或先选择一个工作区'"
         aria-label="消息输入框"
       ></textarea>
 
@@ -220,7 +241,7 @@ onBeforeUnmount(() => {
         <div class="composer-left">
           <button class="chip workspace-chip" @click="selectWorkspace">
             <FolderOpen :size="14" />
-            {{ workspaceStore.hasWorkspace ? workspaceStore.currentWorkspaceName : '选择工作区' }}
+            {{ effectiveWorkspace?.name ?? '选择工作区' }}
           </button>
           <div v-if="currentConversation" ref="sessionConfigWrap" class="session-config-wrap">
             <button class="chip session-config-trigger" @click="toggleSessionConfig">
@@ -247,7 +268,7 @@ onBeforeUnmount(() => {
               </div>
               <label class="composer-select-field session-field">
                 <span class="field-label">权限模式</span>
-                <select class="composer-select" :value="currentPermissionMode" @change="changePermissionMode" :disabled="!workspaceStore.hasWorkspace">
+                <select class="composer-select" :value="currentPermissionMode" @change="changePermissionMode" :disabled="!effectiveWorkspaceId">
                   <option value="chat">聊天</option>
                   <option value="read">只读</option>
                   <option value="execute">改文件</option>

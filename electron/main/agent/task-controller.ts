@@ -185,6 +185,7 @@ class TaskControllerImpl {
       permission_mode: permissionMode,
       title: request.title ?? request.content.trim().slice(0, 50),
     })
+    messageRepo.updateTaskId(userMessage.id, taskId)
 
     // 记录操作日志
     operationLogRepo.create({
@@ -385,6 +386,7 @@ class TaskControllerImpl {
       temperature: provider.temperature ?? undefined,
       maxTokens: provider.max_tokens ?? undefined,
       timeoutMs: provider.timeout_ms,
+      streamEnabled: provider.stream_enabled !== 0,
     }
   }
 
@@ -396,6 +398,7 @@ class TaskControllerImpl {
       id: task.id,
       conversationId: task.conversation_id,
       userMessageId: task.user_message_id,
+      assistantMessageId: task.assistant_message_id,
       providerId: task.provider_id,
       workspaceId: task.workspace_id,
       permissionMode: task.permission_mode,

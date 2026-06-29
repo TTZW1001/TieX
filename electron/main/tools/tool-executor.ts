@@ -32,6 +32,22 @@ const PERMISSION_RANK: Record<PermissionMode, number> = {
   command: 3,
 }
 
+function getPermissionTarget(toolName: string, input: unknown): string | undefined {
+  const inputObj = typeof input === 'object' && input !== null ? input as any : {}
+  if (toolName === 'run_command') {
+    const command = String(inputObj.command ?? '').trim()
+    const args = Array.isArray(inputObj.args) ? inputObj.args.map((arg: unknown) => String(arg)) : []
+    return [command, ...args].filter(Boolean).join(' ').trim() || undefined
+  }
+  return inputObj.path ? String(inputObj.path) : undefined
+}
+
+function getConversationApprovalTarget(toolName: string, input: unknown): string | undefined {
+  // “本次会话内允许”对文件写入类工具按工具类型复用，避免同会话 create_file
+  // 因为目标路径不同反复打断；命令仍按具体 command+args 复用，避免放开全部命令。
+  return toolName === 'run_command' ? getPermissionTarget(toolName, input) : undefined
+}
+
 /** 需要权限审批的结果 */
 export interface PermissionRequiredResult {
   needsPermission: true
@@ -45,7 +61,7 @@ export interface PermissionRequiredResult {
 }
 
 /**
- * 检查工具是否需要权限审批，以及是否已有任务级授权
+ * 检查工具是否需要权限审批，以及是否已有会话级授权
  */
 export function checkToolPermission(
   context: ToolExecutionContext,
@@ -58,9 +74,9 @@ export function checkToolPermission(
     return { required: false }
   }
 
-  // 检查是否已有任务级授权
-  const target = typeof input === 'object' && input !== null ? (input as any).path : undefined
-  if (permissionService.hasTaskApproval(context.taskId, toolName, target)) {
+  // 检查是否已有会话级授权
+  const target = getConversationApprovalTarget(toolName, input)
+  if (permissionService.hasConversationApproval(context.conversationId, toolName, target)) {
     return { required: false }
   }
 
@@ -83,7 +99,7 @@ export function createPermissionRequest(
   riskLevel?: string
 ): string {
   const inputObj = typeof input === 'object' && input !== null ? input as any : {}
-  const target = inputObj.path ? String(inputObj.path) : undefined
+  const target = getPermissionTarget(toolName, input)
 
   // 构建影响摘要
   let impactSummary: string | undefined

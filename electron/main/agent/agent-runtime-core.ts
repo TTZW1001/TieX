@@ -15,21 +15,41 @@ import { getProvider } from '../providers/provider-factory'
 import { MessageRepository } from '../database/repositories/message.repository'
 import { TaskStepRepository } from '../database/repositories/task-step.repository'
 import { OperationLogRepository } from '../database/repositories/operation-log.repository'
+import { TaskRepository } from '../database/repositories/task.repository'
 import { taskEventBus } from '../shared/event-bus'
 import { MemoryService } from '../services/memory.service'
 import { buildSystemPrompt } from './system-prompt'
 import type { AgentRole } from './agent-profiles'
+import { throttle } from '../utils/throttle'
+import { analyzeConversationCorrection, buildCorrectionNotice } from './conversation-corrections'
+import { ToolCallRepository } from '../database/repositories/tool-call.repository'
+import { buildExecutionFactSummary } from './execution-facts'
 
 const messageRepo = new MessageRepository()
 const taskStepRepo = new TaskStepRepository()
 const operationLogRepo = new OperationLogRepository()
+const taskRepo = new TaskRepository()
 const memoryService = new MemoryService()
+const toolCallRepo = new ToolCallRepository()
 
 export interface AgentRoutePlan {
   useResearch: boolean
   useMemory: boolean
   useImplementation: boolean
   reason: string
+}
+
+function formatRouteStepContent(plan: AgentRoutePlan): string {
+  const agents = [
+    plan.useResearch ? '资料整理' : '',
+    plan.useMemory ? '规则记忆' : '',
+    plan.useImplementation ? '代码实现' : '',
+  ].filter(Boolean)
+
+  return [
+    `调用决策：${agents.join(' / ') || '无子 Agent'}`,
+    `原因：${plan.reason}`,
+  ].join('\n\n')
 }
 
 /** 权限审批超时时间（毫秒） */
@@ -108,6 +128,161 @@ export function createStreamingAssistantMessage(conversationId: string, taskId: 
   return assistantMessage
 }
 
+function matchesShortExecutionConfirmation(content: string): boolean {
+  const normalized = content
+    .trim()
+    .toLowerCase()
+    .replace(/[！!。,.，？?~～\s]/g, '')
+
+  if (!normalized) return false
+
+  const exactMatches = new Set([
+    '开写吧',
+    '开始',
+    '开始开始',
+    '继续',
+    '继续吧',
+    '来吧',
+    '做吧',
+    '搞吧',
+    '弄吧',
+    '写吧',
+    '写啊',
+    '开始写',
+    '直接写',
+    '开工',
+    '开搞',
+    '就这个',
+    '就按这个',
+    '按这个来',
+    '可以',
+    '行',
+    '好',
+    '好的',
+  ])
+
+  if (exactMatches.has(normalized)) {
+    return true
+  }
+
+  return /^(开始写|直接做|直接写|继续做|继续写|马上写|现在写|开写|开工|开搞)/.test(normalized)
+}
+
+function shouldContinuePriorImplementation(runtime: RuntimeContext, content: string): boolean {
+  if (!matchesShortExecutionConfirmation(content)) {
+    return false
+  }
+
+  const recentMessages = messageRepo.getRecentByConversationId(runtime.conversationId, 8)
+  const assistantMessages = recentMessages.filter((message) => message.role === 'assistant')
+  const lastAssistantMessage = assistantMessages[assistantMessages.length - 1]
+  if (!lastAssistantMessage?.content) {
+    return false
+  }
+
+  const assistantContent = lastAssistantMessage.content.toLowerCase()
+  const executionOfferHints = [
+    '要开写吗',
+    '要我',
+    '我可以立刻',
+    '我现在马上',
+    '我这就',
+    '帮你写',
+    '生成一个',
+    '创建一个',
+    '写一个',
+    '直接给你',
+    '马上开始',
+    '立刻开工',
+    '可以帮你做',
+    '开始写',
+  ]
+
+  return executionOfferHints.some((hint) => assistantContent.includes(hint))
+}
+
+function pickFastRoutePlan(runtime: RuntimeContext): AgentRoutePlan | null {
+  const content = runtime.userContent.trim()
+  const normalized = content.toLowerCase()
+  const hasWorkspace = !!runtime.workspaceRoot
+  const recentMessages = messageRepo.getRecentByConversationId(runtime.conversationId, 8)
+  const correctionSignal = analyzeConversationCorrection(content, recentMessages)
+
+  if (!content) {
+    return {
+      useResearch: false,
+      useMemory: false,
+      useImplementation: false,
+      reason: '空请求，跳过调度',
+    }
+  }
+
+  if (!hasWorkspace) {
+    return {
+      useResearch: false,
+      useMemory: false,
+      useImplementation: false,
+      reason: '未绑定工作区，直接走普通回复',
+    }
+  }
+
+  const implementationHints = [
+    '代码', '文件', '项目', '仓库', '工作区', '目录', '函数', '类', '模块', '报错', 'bug', '修复', '修改',
+    '重构', '实现', '创建', '删除', '运行', '命令', '构建', '测试', '搜索', '查找', '读取', '分析项目',
+    '检查', '生成', '安装', '启动', 'debug', 'fix', 'refactor', 'build', 'test',
+  ]
+  const researchHints = ['梳理', '总结', '架构', '方案', '排查', '定位', '优化', 'review', '分析']
+  const memoryHints = ['记住', '偏好', '规则', '规范', '命名', '约定', '风格', '以后都', '统一']
+  const plainChatHints = ['你好', '你是谁', '谢谢', '天气', '翻译', '解释这个词', '介绍一下']
+
+  if (correctionSignal.shouldPreferImplementation) {
+    return {
+      useResearch: correctionSignal.deniesPriorAssistantResult,
+      useMemory: false,
+      useImplementation: true,
+      reason: `${correctionSignal.reason}，优先进入实现链路`,
+    }
+  }
+
+  if (plainChatHints.some((hint) => normalized.includes(hint))) {
+    return {
+      useResearch: false,
+      useMemory: false,
+      useImplementation: false,
+      reason: '明显是轻量对话，跳过调度',
+    }
+  }
+
+  if (shouldContinuePriorImplementation(runtime, content)) {
+    return {
+      useResearch: false,
+      useMemory: false,
+      useImplementation: true,
+      reason: '识别为对上一轮执行提议的确认，直接进入实现链路',
+    }
+  }
+
+  const useImplementation = implementationHints.some((hint) => normalized.includes(hint))
+  if (!useImplementation) {
+    return {
+      useResearch: false,
+      useMemory: false,
+      useImplementation: false,
+      reason: '未命中执行信号，直接走普通回复',
+    }
+  }
+
+  const useResearch = content.length >= 60 || researchHints.some((hint) => normalized.includes(hint))
+  const useMemory = memoryHints.some((hint) => normalized.includes(hint))
+
+  return {
+    useResearch,
+    useMemory,
+    useImplementation: true,
+    reason: '命中快速规则，跳过调度模型',
+  }
+}
+
 export async function routeByResponder(runtime: RuntimeContext): Promise<AgentRoutePlan> {
   const seqNo = taskStepRepo.getNextSequenceNo(runtime.taskId)
   const step = taskStepRepo.create({
@@ -119,9 +294,21 @@ export async function routeByResponder(runtime: RuntimeContext): Promise<AgentRo
   taskStepRepo.updateStatus(step.id, 'running')
 
   try {
+    const fastPlan = pickFastRoutePlan(runtime)
+    if (fastPlan) {
+      taskStepRepo.updateContent(
+        step.id,
+        formatRouteStepContent(fastPlan)
+      )
+      taskStepRepo.updateStatus(step.id, 'completed')
+      return fastPlan
+    }
+
     const provider = getProvider(runtime.responderConfig.providerConfig.providerType)
+    const recentMessages = messageRepo.getRecentByConversationId(runtime.conversationId, 8)
+    const correctionSignal = analyzeConversationCorrection(runtime.userContent, recentMessages)
     const systemPrompt = buildSystemPrompt({
-      permissionMode: runtime.workspaceRoot ? 'read' : 'chat',
+      permissionMode: runtime.permissionMode,
       workspaceId: runtime.workspaceId ?? null,
       workspaceName: runtime.workspaceName,
       workspaceRootName: runtime.workspaceRootName,
@@ -136,6 +323,7 @@ export async function routeByResponder(runtime: RuntimeContext): Promise<AgentRo
         content:
           '你现在是任务调度者。请判断这轮是否需要调用以下 Agent：资料整理 Agent、规则记忆 Agent、代码实现 Agent。' +
           '如果用户只是普通问答或无需工作区执行，可以不调用代码实现 Agent。' +
+          '如果用户在纠正上一轮结果、否认“已改/已写/已执行”、催促继续修改或确认继续执行，并且当前会话绑定工作区，必须强烈倾向调用代码实现 Agent。' +
           '只输出 JSON，不要加解释。格式：{"useResearch":boolean,"useMemory":boolean,"useImplementation":boolean,"reason":"简短中文原因"}',
       },
       {
@@ -144,6 +332,9 @@ export async function routeByResponder(runtime: RuntimeContext): Promise<AgentRo
           `用户请求：${runtime.userContent}`,
           runtime.workspaceName ? `当前工作区：${runtime.workspaceName}` : '当前未绑定工作区',
           `当前权限模式：${runtime.permissionMode}`,
+          correctionSignal.shouldPreferImplementation
+            ? `最近上下文信号：${correctionSignal.reason}。上一轮 assistant ${correctionSignal.priorAssistantActionClaim ? '存在执行承诺或完成声明' : '没有明确执行声明'}。`
+            : '',
         ].join('\n'),
       },
     ]
@@ -168,11 +359,7 @@ export async function routeByResponder(runtime: RuntimeContext): Promise<AgentRo
     const plan = parseRoutePlan(content, !!runtime.workspaceRoot)
     taskStepRepo.updateContent(
       step.id,
-      `[主对话 Agent]\n\n调用决策：${[
-        plan.useResearch ? '资料整理' : '',
-        plan.useMemory ? '规则记忆' : '',
-        plan.useImplementation ? '代码实现' : '',
-      ].filter(Boolean).join(' / ') || '无子 Agent'}\n\n原因：${plan.reason}`
+      formatRouteStepContent(plan)
     )
     taskStepRepo.updateStatus(step.id, 'completed')
     return plan
@@ -259,7 +446,11 @@ export async function runCollaboratorBrief(
   }
 }
 
-export async function runResponderPass(runtime: RuntimeContext, implementationOutput: string): Promise<string> {
+export async function runResponderPass(
+  runtime: RuntimeContext,
+  implementationOutput: string,
+  assistantMessageId?: string
+): Promise<string> {
   const seqNo = taskStepRepo.getNextSequenceNo(runtime.taskId)
   const step = taskStepRepo.create({
     task_id: runtime.taskId,
@@ -269,11 +460,29 @@ export async function runResponderPass(runtime: RuntimeContext, implementationOu
   })
   taskStepRepo.updateStatus(step.id, 'running')
 
+  const throttledPushDelta = assistantMessageId
+    ? throttle((content: string, delta: string) => {
+        taskEventBus.emit({
+          type: 'message:delta',
+          taskId: runtime.taskId,
+          messageId: assistantMessageId,
+          content,
+          delta,
+        })
+        messageRepo.updateContent(assistantMessageId, content)
+      }, 50)
+    : null
+
   try {
     const provider = getProvider(runtime.responderConfig.providerConfig.providerType)
     const conversationSummary = memoryService.getConversationSummary(runtime.conversationId)?.summary ?? ''
+    const recentMessages = messageRepo.getRecentByConversationId(runtime.conversationId, 8)
+    const correctionNotice = buildCorrectionNotice(
+      analyzeConversationCorrection(runtime.userContent, recentMessages)
+    )
+    const executionFacts = buildExecutionFactSummary(runtime.taskId)
     const systemPrompt = buildSystemPrompt({
-      permissionMode: 'chat',
+      permissionMode: runtime.permissionMode,
       workspaceId: runtime.workspaceId ?? null,
       workspaceName: runtime.workspaceName,
       workspaceRootName: runtime.workspaceRootName,
@@ -285,10 +494,19 @@ export async function runResponderPass(runtime: RuntimeContext, implementationOu
       { role: 'system' as const, content: systemPrompt },
       {
         role: 'system' as const,
-        content: '你现在负责面向用户输出最终答复。禁止调用工具，禁止编造未发生的操作。请基于执行结果整理成自然中文回复。',
+        content:
+          '你现在负责面向用户输出最终答复。禁止调用工具，禁止编造未发生的操作。' +
+          '最终回复必须以“真实执行事实摘要”为准；代码实现 Agent 的自然语言结论只能作为参考，不能覆盖工具事实。',
       },
+      {
+        role: 'system' as const,
+        content: executionFacts.text,
+      },
+      ...(correctionNotice
+        ? [{ role: 'system' as const, content: correctionNotice }]
+        : []),
       ...(conversationSummary
-        ? [{ role: 'system' as const, content: `当前会话摘要：\n${conversationSummary}` }]
+        ? [{ role: 'system' as const, content: `当前会话摘要（如与最新用户纠正或真实执行事实冲突，以后者为准）：\n${conversationSummary}` }]
         : []),
       ...(runtime.collaboratorNotes.research
         ? [{ role: 'system' as const, content: `资料整理 Agent 简报：\n${runtime.collaboratorNotes.research}` }]
@@ -315,14 +533,27 @@ export async function runResponderPass(runtime: RuntimeContext, implementationOu
       }
       if (event.type === 'delta') {
         content += event.content
+        throttledPushDelta?.(content, event.content)
       } else if (event.type === 'error') {
+        throttledPushDelta?.flush()
         throw new Error(event.error.message)
       } else if (event.type === 'done') {
+        throttledPushDelta?.flush()
         break
       }
     }
 
-    const finalReply = content.trim() || implementationOutput
+    const finalReply = enforceFinalReplyFacts(content.trim() || implementationOutput, executionFacts)
+    if (assistantMessageId) {
+      messageRepo.updateContent(assistantMessageId, finalReply)
+      taskEventBus.emit({
+        type: 'message:delta',
+        taskId: runtime.taskId,
+        messageId: assistantMessageId,
+        content: finalReply,
+        delta: finalReply,
+      })
+    }
     taskStepRepo.updateContent(step.id, `[主对话 Agent]\n\n${finalReply}`.slice(0, 4000))
     taskStepRepo.updateStatus(step.id, 'completed')
     operationLogRepo.create({
@@ -334,6 +565,7 @@ export async function runResponderPass(runtime: RuntimeContext, implementationOu
     })
     return finalReply
   } catch (err: any) {
+    throttledPushDelta?.flush()
     taskStepRepo.updateStatus(step.id, 'failed')
     operationLogRepo.create({
       task_id: runtime.taskId,
@@ -343,8 +575,51 @@ export async function runResponderPass(runtime: RuntimeContext, implementationOu
       message: '主对话 Agent 整理失败，回退到代码实现 Agent 原始结论',
       details: err?.message || String(err),
     })
-    return implementationOutput
+    return enforceFinalReplyFacts(implementationOutput, buildExecutionFactSummary(runtime.taskId))
   }
+}
+
+export function enforceFinalReplyFacts(reply: string, facts: ReturnType<typeof buildExecutionFactSummary>): string {
+  let finalReply = reply.trim()
+  if (!finalReply) {
+    finalReply = facts.hasRejectedPermission
+      ? '未执行修改：相关权限请求已被拒绝，所以没有写入或更改文件。'
+      : '这轮没有产生可确认的执行结果。'
+  }
+
+  if (!facts.hasSuccessfulWrite) {
+    const unsafeCompletionPattern = /(已经|已)(改好|修改|写入|写好|覆盖|更新|创建|生成|保存)|(改好了|写好了|创建好了|更新好了|保存好了)/
+    if (unsafeCompletionPattern.test(finalReply)) {
+      const reason = facts.hasRejectedPermission
+        ? '权限请求被拒绝，相关写入操作未执行。'
+        : '本轮没有真实成功写入记录。'
+      finalReply = [
+        `未确认有文件写入或修改：${reason}`,
+        facts.failedToolSummaries.length ? `失败信息：${facts.failedToolSummaries.join('；')}` : '',
+        facts.rejectedPermissionTargets.length ? `未执行项：${facts.rejectedPermissionTargets.join('；')}` : '',
+      ].filter(Boolean).join('\n')
+    }
+  }
+
+  if (!facts.hasSuccessfulCommand) {
+    const unsafeCommandPattern = /(已经|已)(执行|运行)(了)?|(执行完了|跑完了|运行完了)/
+    if (unsafeCommandPattern.test(finalReply)) {
+      const reason = facts.hasRejectedPermission
+        ? '权限请求被拒绝，相关命令未执行。'
+        : '本轮没有真实成功命令记录。'
+      finalReply = [
+        `未确认有命令执行成功：${reason}`,
+        facts.failedToolSummaries.length ? `失败信息：${facts.failedToolSummaries.join('；')}` : '',
+        facts.rejectedPermissionTargets.length ? `未执行项：${facts.rejectedPermissionTargets.join('；')}` : '',
+      ].filter(Boolean).join('\n')
+    }
+  }
+
+  if (facts.hasRejectedPermission && !/(未执行|未修改|没有执行|没有修改|权限.*拒绝|拒绝.*权限)/.test(finalReply)) {
+    finalReply += `\n\n注意：权限请求已被拒绝，相关操作未执行、未修改。`
+  }
+
+  return finalReply
 }
 
 export async function runImplementationPass(
@@ -354,7 +629,18 @@ export async function runImplementationPass(
   const { taskId, conversationId, abortController } = runtime
   const limits = loadTaskLimitsFromSettings()
   let assistantMessageId = initialAssistantMessageId
+  let activeAssistantMessageId = assistantMessageId
   let pendingToolCalls: Array<{ toolCall: ModelToolCall; result: ToolExecutionResult }> | undefined
+  const throttledPushDelta = throttle((content: string, delta: string) => {
+    taskEventBus.emit({
+      type: 'message:delta',
+      taskId,
+      messageId: activeAssistantMessageId,
+      content,
+      delta,
+    })
+    messageRepo.updateContent(activeAssistantMessageId, content)
+  }, 50)
 
   while (true) {
     if (abortController.signal.aborted) {
@@ -429,14 +715,7 @@ export async function runImplementationPass(
         if (streamEvent.type === 'delta') {
           accumulator.processDelta({ content: streamEvent.content })
           const currentText = accumulator.getTextContent()
-          taskEventBus.emit({
-            type: 'message:delta',
-            taskId,
-            messageId: assistantMessageId,
-            content: currentText,
-            delta: streamEvent.content,
-          })
-          messageRepo.updateContent(assistantMessageId, currentText)
+          throttledPushDelta(currentText, streamEvent.content)
         } else if (streamEvent.type === 'tool_call_delta') {
           accumulator.processDelta({ tool_calls: streamEvent.delta })
         } else if (streamEvent.type === 'finish') {
@@ -444,8 +723,10 @@ export async function runImplementationPass(
           accumulator.setFinishReason(streamEvent.reason)
         } else if (streamEvent.type === 'done') {
           usageTotalTokens = streamEvent.usage?.totalTokens ?? usageTotalTokens
+          throttledPushDelta.flush()
           break
         } else if (streamEvent.type === 'error') {
+          throttledPushDelta.flush()
           modelError = {
             code: streamEvent.error.code,
             message: streamEvent.error.message,
@@ -468,6 +749,7 @@ export async function runImplementationPass(
     }
 
     if (abortController.signal.aborted) {
+      throttledPushDelta.flush()
       taskStepRepo.updateStatus(modelStep.id, 'failed')
       throw new TaskTerminalError({
         status: 'stopped',
@@ -518,9 +800,11 @@ export async function runImplementationPass(
       if (modelResponse.type === 'tool_calls_with_text') {
         const textContent = modelResponse.textContent.trim()
         if (textContent) {
+          throttledPushDelta.flush()
           messageRepo.updateContent(assistantMessageId, modelResponse.textContent)
           messageRepo.setStreaming(assistantMessageId, 0)
           assistantMessageId = createStreamingAssistantMessage(conversationId, taskId).id
+          activeAssistantMessageId = assistantMessageId
         }
       }
 
@@ -605,6 +889,8 @@ export async function runImplementationPass(
           taskController.updateTaskStatus(taskId, 'running')
 
           if (!approved) {
+            const rejectedToolCallId = persistedToolCallId ?? toolCallId
+            toolCallRepo.updateError(rejectedToolCallId, 'PERMISSION_REJECTED', `用户拒绝执行工具 "${toolCall.name}"`)
             operationLogRepo.create({
               task_id: taskId,
               conversation_id: conversationId,
@@ -723,7 +1009,7 @@ async function runCollaboratorAgentPass(
   const conversationSummary = memoryService.getConversationSummary(runtime.conversationId)?.summary ?? ''
   const agentLabel = role === 'research' ? '资料整理 Agent' : '规则记忆 Agent'
   const systemPrompt = buildSystemPrompt({
-    permissionMode: runtime.workspaceRoot ? 'read' : 'chat',
+    permissionMode: runtime.permissionMode,
     workspaceId: runtime.workspaceId ?? null,
     workspaceName: runtime.workspaceName,
     workspaceRootName: runtime.workspaceRootName,
@@ -792,6 +1078,7 @@ export async function finishTask(
   }
 
   messageRepo.setStreaming(assistantMessageId, 0)
+  taskRepo.updateMessageLinks(taskId, { assistantMessageId })
   taskController.updateTaskStatus(taskId, status, {
     errorCode: extra?.errorCode,
     errorMessage: extra?.errorMessage,

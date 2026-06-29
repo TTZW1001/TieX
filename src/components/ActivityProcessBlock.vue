@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import MarkdownIt from 'markdown-it'
 import { ChevronRight, Loader2 } from 'lucide-vue-next'
 import ActivityFeedItem, { type ActivityEntry } from './ActivityFeedItem.vue'
+import MarkdownContent from './MarkdownContent.vue'
 
 export type ProcessStreamItem =
   | {
@@ -24,21 +24,11 @@ const props = defineProps<{
   running: boolean
 }>()
 
-const md = new MarkdownIt({
-  html: false,
-  linkify: true,
-  typographer: true,
-})
-
 const summaryLabel = computed(() => {
   return props.running ? '处理中' : '已处理'
 })
 
 const summaryCount = computed(() => `${props.items.length} 项`)
-
-function renderMarkdown(content: string) {
-  return md.render(content)
-}
 </script>
 
 <template>
@@ -56,7 +46,7 @@ function renderMarkdown(content: string) {
     <div class="process-stream">
       <template v-for="(item, index) in items" :key="item.id">
         <div v-if="item.kind === 'note'" class="process-note">
-          <div class="process-note-body markdown-body" v-html="renderMarkdown(item.content)" />
+          <MarkdownContent class="process-note-body" :content="item.content" />
         </div>
         <ActivityFeedItem
           v-else

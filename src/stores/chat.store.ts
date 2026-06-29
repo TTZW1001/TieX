@@ -24,6 +24,7 @@ export const useChatStore = defineStore('chat', () => {
   const isStreaming = ref(false)
   const currentConversationId = ref<string | null>(null)
   const error = ref<{ code: string; message: string } | null>(null)
+  const scrollToBottomRequest = ref(0)
 
   // 分页状态
   const totalCount = ref(0)
@@ -135,9 +136,8 @@ export const useChatStore = defineStore('chat', () => {
         }
         isStreaming.value = false
         removeTaskStreamListeners()
-        // 重新加载消息以获取最终状态
         if (currentConversationId.value) {
-          loadMessages(currentConversationId.value)
+          void loadMessages(currentConversationId.value)
         }
         break
       }
@@ -262,14 +262,35 @@ export const useChatStore = defineStore('chat', () => {
 
     error.value = null
     isStreaming.value = true
+    const tempUserMessageId = `temp-user-${Date.now()}`
+
+    messages.value.push({
+      id: tempUserMessageId,
+      conversationId,
+      role: 'user',
+      content,
+      contentType: 'text',
+      attachments: attachments.map((attachment, index) => ({
+        id: `temp-attachment-${index}`,
+        kind: attachment.mimeType?.startsWith('image/') ? 'image' : 'file',
+        fileName: attachment.name,
+        mimeType: attachment.mimeType ?? null,
+        originalPath: attachment.path,
+        sizeBytes: attachment.size ?? null,
+      })),
+      sequenceNo: messages.value.length,
+      isStreaming: 0,
+      createdAt: new Date().toISOString(),
+    })
+    scrollToBottomRequest.value += 1
 
     // 确保监听器已设置
     setupStreamListeners()
 
     try {
-      // 先在前端添加用户消息
       const userMessage = await window.tiex.chat.send(conversationId, content, attachments)
-      messages.value.push({
+      const tempIndex = messages.value.findIndex((message) => message.id === tempUserMessageId)
+      const nextMessage = {
         id: userMessage.id,
         conversationId: userMessage.conversationId,
         taskId: userMessage.taskId ?? null,
@@ -280,8 +301,14 @@ export const useChatStore = defineStore('chat', () => {
         sequenceNo: userMessage.sequenceNo,
         isStreaming: 0,
         createdAt: userMessage.createdAt,
-      })
+      }
+      if (tempIndex !== -1) {
+        messages.value[tempIndex] = nextMessage
+      } else {
+        messages.value.push(nextMessage)
+      }
     } catch (err: any) {
+      messages.value = messages.value.filter((message) => message.id !== tempUserMessageId)
       isStreaming.value = false
       error.value = {
         code: 'SEND_ERROR',
@@ -304,6 +331,27 @@ export const useChatStore = defineStore('chat', () => {
 
     error.value = null
     isStreaming.value = true
+    const tempUserMessageId = `temp-user-${Date.now()}`
+
+    messages.value.push({
+      id: tempUserMessageId,
+      conversationId,
+      role: 'user',
+      content,
+      contentType: 'text',
+      attachments: options?.attachments?.map((attachment, index) => ({
+        id: `temp-attachment-${index}`,
+        kind: attachment.mimeType?.startsWith('image/') ? 'image' : 'file',
+        fileName: attachment.name,
+        mimeType: attachment.mimeType ?? null,
+        originalPath: attachment.path,
+        sizeBytes: attachment.size ?? null,
+      })) ?? [],
+      sequenceNo: messages.value.length,
+      isStreaming: 0,
+      createdAt: new Date().toISOString(),
+    })
+    scrollToBottomRequest.value += 1
 
     // 设置任务事件监听
     setupTaskStreamListeners()
@@ -317,31 +365,17 @@ export const useChatStore = defineStore('chat', () => {
         workspaceId: options?.workspaceId ?? null,
       })
 
-      // 添加用户消息占位（实际用户消息由主进程创建）
-      // 主进程会在 task:start 中创建用户消息和 assistant 消息
-      // 我们通过 loadMessages 重新加载来获取这些消息
-      // 但为了即时反馈，先在前端添加用户消息
-      messages.value.push({
-        id: `temp-user-${Date.now()}`,
-        conversationId,
-        role: 'user',
-        content,
-        contentType: 'text',
-        attachments: options?.attachments?.map((attachment, index) => ({
-          id: `temp-attachment-${index}`,
-          kind: attachment.mimeType?.startsWith('image/') ? 'image' : 'file',
-          fileName: attachment.name,
-          mimeType: attachment.mimeType ?? null,
-          originalPath: attachment.path,
-          sizeBytes: attachment.size ?? null,
-        })) ?? [],
-        sequenceNo: messages.value.length,
-        isStreaming: 0,
-        createdAt: new Date().toISOString(),
-      })
+      const tempIndex = messages.value.findIndex((message) => message.id === tempUserMessageId)
+      if (tempIndex !== -1) {
+        messages.value[tempIndex] = {
+          ...messages.value[tempIndex],
+          id: result.userMessageId,
+        }
+      }
 
       return result.taskId
     } catch (err: any) {
+      messages.value = messages.value.filter((message) => message.id !== tempUserMessageId)
       isStreaming.value = false
       error.value = {
         code: 'TASK_START_ERROR',
@@ -385,6 +419,7 @@ export const useChatStore = defineStore('chat', () => {
     isStreaming,
     currentConversationId,
     error,
+    scrollToBottomRequest,
     totalCount,
     hasMoreMessages,
     loadMessages,

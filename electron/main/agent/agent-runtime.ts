@@ -58,7 +58,7 @@ export async function runAgent(runtime: RuntimeContext): Promise<void> {
   }
 }
 
-export async function startAgentTask(request: CreateTaskRequest): Promise<string> {
+export async function startAgentTask(request: CreateTaskRequest): Promise<{ taskId: string; userMessageId: string }> {
   const { taskId, runtime } = await taskController.createTask(request)
 
   runAgent(runtime).catch((err) => {
@@ -70,5 +70,5 @@ export async function startAgentTask(request: CreateTaskRequest): Promise<string
     taskController.cleanup(taskId)
   })
 
-  return taskId
+  return { taskId, userMessageId: runtime.userMessageId }
 }
