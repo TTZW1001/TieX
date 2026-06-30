@@ -1,9 +1,7 @@
 import { MessageRepository } from '../database/repositories/message.repository'
 import { MessageAttachmentRepository } from '../database/repositories/message-attachment.repository'
 import { ConversationRepository } from '../database/repositories/conversation.repository'
-import { ProviderRepository } from '../database/repositories/provider.repository'
 import { buildSystemPrompt } from '../agent/system-prompt'
-import { safeStorage } from 'electron'
 import { throttle } from '../utils/throttle'
 import { streamChatWithCallbacks } from '../utils/stream-chat'
 import type { ProviderConfig, ModelRequest, ChatMessage } from '../providers/model-provider'
@@ -12,12 +10,15 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { normalizeAttachmentInput, readAttachmentSize, toAttachmentContentParts } from './attachment-utils'
 import { MemoryService } from './memory.service'
 import { getProviderCapabilities } from '../providers/provider-capabilities'
+import { AiSettingsService } from './ai-settings.service'
+import { SkillService, skillRepo } from './skill.service'
 
 const messageRepo = new MessageRepository()
 const attachmentRepo = new MessageAttachmentRepository()
 const conversationRepo = new ConversationRepository()
-const providerRepo = new ProviderRepository()
 const memoryService = new MemoryService()
+const aiSettingsService = new AiSettingsService()
+const skillService = new SkillService()
 
 // 当前活跃的 AbortController，按 conversationId 索引
 const activeControllers = new Map<string, AbortController>()
@@ -54,6 +55,17 @@ export class ChatService {
       throw new Error('会话不存在')
     }
 
+    const skillRefs = skillService.resolveRefs(content.trim())
+    if (skillRefs.missing.length > 0) {
+      throw new Error(`未找到 Skill：${skillRefs.missing.join(', ')}。请先安装或刷新扫描。`)
+    }
+    if (skillRefs.disabled.length > 0) {
+      throw new Error(`Skill 已禁用：${skillRefs.disabled.join(', ')}。请先在设置中启用。`)
+    }
+    if (skillRefs.refs.length > 3) {
+      throw new Error('单轮最多引用 3 个 Skill，请减少后重试。')
+    }
+
     // 获取最新 sequence_no
     const latestMsg = messageRepo.getLatestByConversationId(conversationId)
     const nextSeq = (latestMsg?.sequence_no ?? 0) + 1
@@ -65,6 +77,7 @@ export class ChatService {
       content: content.trim(),
       sequence_no: nextSeq,
     })
+    skillRepo.createMessageRefs(userMessage.id, conversationId, skillRefs.refs)
     if (attachments.length > 0) {
       attachmentRepo.createMany(
         attachments.map((attachment) => {
@@ -89,20 +102,7 @@ export class ChatService {
       conversationRepo.updateTitle(conversationId, autoTitle)
     }
 
-    // 获取 Provider 配置
-    const providerId = conversation.provider_id
-    let providerConfig: ProviderConfig
-
-    if (providerId) {
-      providerConfig = await this.getProviderConfig(providerId)
-    } else {
-      // 使用默认 Provider
-      const defaultProvider = providerRepo.getDefault()
-      if (!defaultProvider) {
-        throw new Error('未配置模型服务商，请先在设置中配置')
-      }
-      providerConfig = await this.getProviderConfig(defaultProvider.id)
-    }
+    const providerConfig = await aiSettingsService.getProviderConfig(conversationId)
 
     if (attachments.length > 0) {
       const capability = getProviderCapabilities(providerConfig.providerType, providerConfig.model)
@@ -123,7 +123,7 @@ export class ChatService {
     messageRepo.setStreaming(assistantMessage.id, 1)
 
     // 构建多轮上下文
-    const contextMessages = this.buildContext(conversationId, providerConfig.providerType)
+    const contextMessages = this.buildContext(conversationId, userMessage.id, providerConfig)
 
     // 创建 AbortController
     const controller = new AbortController()
@@ -133,6 +133,7 @@ export class ChatService {
     const modelRequest: ModelRequest = {
       messages: contextMessages,
       temperature: providerConfig.temperature,
+      topP: providerConfig.topP,
       maxTokens: providerConfig.maxTokens,
     } as any
     // 将 config 附加到 request 上供 Provider 使用
@@ -254,13 +255,30 @@ export class ChatService {
   /**
    * 构建多轮上下文
    */
-  private buildContext(conversationId: string, providerType: string): ChatMessage[] {
-    const contextSlice = messageRepo.getRecentByConversationId(conversationId, MAX_CONTEXT_MESSAGES)
+  private buildContext(conversationId: string, userMessageId: string, providerConfig: ProviderConfig): ChatMessage[] {
+    const historyLimit =
+      typeof providerConfig.contextMessageLimit === 'number'
+        ? Math.max(1, Math.min(200, Math.floor(providerConfig.contextMessageLimit)))
+        : MAX_CONTEXT_MESSAGES
+    const contextSlice = messageRepo.getRecentByConversationId(conversationId, historyLimit)
     const systemPrompt = buildSystemPrompt({ permissionMode: 'chat' })
     const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }]
     const conversationSummary = memoryService.getConversationSummary(conversationId)
     if (conversationSummary?.summary) {
       messages.push({ role: 'system', content: `会话摘要记忆：\n${conversationSummary.summary}` })
+    }
+    const referencedSkills = skillRepo.getByMessageId(userMessageId).slice(0, 3)
+    for (const skill of referencedSkills) {
+      const content = skillService.readSkillContent(skill)
+      if (!content) continue
+      const skillContent =
+        content.length > 6000
+          ? `${skill.summary || skill.description || '该 Skill 内容较长，已只注入摘要。'}\n\n注意：完整 Skill 超过当前注入上限。`
+          : content
+      messages.push({
+        role: 'system',
+        content: `本轮用户显式引用了 TieX Skill：${skill.name}\n\n${skillContent}`,
+      })
     }
     const attachments = attachmentRepo.getByMessageIds(contextSlice.map((message) => message.id))
     const attachmentsByMessage = new Map<string, typeof attachments>()
@@ -278,7 +296,7 @@ export class ChatService {
             role: 'user',
             content: [
               { type: 'text', text: msg.content },
-              ...toAttachmentContentParts(messageAttachments, providerType),
+              ...toAttachmentContentParts(messageAttachments, providerConfig.providerType),
             ],
           })
         } else {
@@ -288,39 +306,6 @@ export class ChatService {
     }
 
     return messages
-  }
-
-  /**
-   * 获取解密后的 Provider 配置
-   */
-  private async getProviderConfig(providerId: string): Promise<ProviderConfig> {
-    const provider = providerRepo.getById(providerId)
-    if (!provider) {
-      throw new Error('模型服务商配置不存在')
-    }
-
-    // 解密 API Key
-    let apiKey = ''
-    const encrypted = providerRepo.getEncryptedApiKey(providerId)
-    if (encrypted) {
-      if (!safeStorage.isEncryptionAvailable()) {
-        throw new Error('系统不支持安全存储')
-      }
-      apiKey = safeStorage.decryptString(encrypted)
-    }
-
-    return {
-      id: provider.id,
-      name: provider.name,
-      providerType: provider.provider_type,
-      baseUrl: provider.base_url,
-      model: provider.model_name,
-      apiKey,
-      temperature: provider.temperature ?? undefined,
-      maxTokens: provider.max_tokens ?? undefined,
-      timeoutMs: provider.timeout_ms,
-      streamEnabled: provider.stream_enabled !== 0,
-    }
   }
 
   /**

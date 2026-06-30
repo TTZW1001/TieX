@@ -95,6 +95,122 @@ export interface AppSetting {
   updated_at: string
 }
 
+// ===== AI 配置相关类型 =====
+
+export interface AiConfig {
+  providerId: string | null
+  modelName: string | null
+  temperature: number | null
+  topP: number | null
+  maxTokens: number | null
+  contextMessageLimit: number | null
+  contextTokenLimit: number | null
+  streamEnabled: boolean | null
+  toolsEnabled: boolean | null
+  attachmentsEnabled: boolean | null
+}
+
+export interface AiPresetEntity {
+  id: string
+  name: string
+  scope: string
+  provider_id: string | null
+  model_name: string | null
+  temperature: number | null
+  top_p: number | null
+  max_tokens: number | null
+  context_message_limit: number | null
+  context_token_limit: number | null
+  stream_enabled: number | null
+  tools_enabled: number | null
+  attachments_enabled: number | null
+  custom_params_json: string | null
+  is_default: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ConversationAiSettingsEntity {
+  conversation_id: string
+  provider_id: string | null
+  model_name: string | null
+  temperature: number | null
+  top_p: number | null
+  max_tokens: number | null
+  context_message_limit: number | null
+  context_token_limit: number | null
+  stream_enabled: number | null
+  tools_enabled: number | null
+  attachments_enabled: number | null
+  override_mask_json: string
+  updated_at: string
+}
+
+export interface ConversationAiSettingsVO {
+  conversationId: string
+  config: AiConfig
+  overrideMask: Partial<Record<keyof AiConfig, boolean>>
+  updatedAt: string
+}
+
+export interface EffectiveAiConfig extends AiConfig {
+  provider: ModelProvider | null
+  source: Record<keyof AiConfig, 'default' | 'conversation' | 'agent'>
+}
+
+// ===== Skills 相关类型 =====
+
+export interface InstalledSkillEntity {
+  id: string
+  name: string
+  display_name: string
+  description: string | null
+  source: string | null
+  version: string | null
+  path: string
+  enabled: number
+  install_type: string
+  content_hash: string | null
+  summary: string | null
+  token_estimate: number | null
+  last_scanned_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SkillInfo {
+  id: string
+  name: string
+  displayName: string
+  description: string | null
+  source: string | null
+  version: string | null
+  path: string
+  enabled: boolean
+  installType: string
+  summary: string | null
+  tokenEstimate: number | null
+  lastScannedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SkillMarketItem {
+  id: string
+  name: string
+  displayName: string
+  description: string
+  version: string
+  tags: string[]
+  installedSkillId: string | null
+}
+
+export interface SkillRefResolution {
+  refs: SkillInfo[]
+  missing: string[]
+  disabled: string[]
+}
+
 // 聊天相关类型
 
 export interface ChatMessageVO {

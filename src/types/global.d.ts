@@ -372,6 +372,64 @@ export interface PermissionRequestInfo {
   decided_at: string | null
 }
 
+export interface AiConfigInfo {
+  providerId: string | null
+  modelName: string | null
+  temperature: number | null
+  topP: number | null
+  maxTokens: number | null
+  contextMessageLimit: number | null
+  contextTokenLimit: number | null
+  streamEnabled: boolean | null
+  toolsEnabled: boolean | null
+  attachmentsEnabled: boolean | null
+}
+
+export interface ConversationAiSettingsInfo {
+  conversationId: string
+  config: AiConfigInfo
+  overrideMask: Partial<Record<keyof AiConfigInfo, boolean>>
+  updatedAt: string
+}
+
+export interface EffectiveAiConfigInfo extends AiConfigInfo {
+  provider: ProviderInfo | null
+  source: Record<keyof AiConfigInfo, 'default' | 'conversation' | 'agent'>
+}
+
+export interface SkillInfo {
+  id: string
+  name: string
+  displayName: string
+  description: string | null
+  source: string | null
+  version: string | null
+  path: string
+  enabled: boolean
+  installType: string
+  summary: string | null
+  tokenEstimate: number | null
+  lastScannedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SkillMarketItemInfo {
+  id: string
+  name: string
+  displayName: string
+  description: string
+  version: string
+  tags: string[]
+  installedSkillId: string | null
+}
+
+export interface SkillRefResolutionInfo {
+  refs: SkillInfo[]
+  missing: string[]
+  disabled: string[]
+}
+
 export type PermissionDecision = 'approved_once' | 'approved_for_conversation' | 'rejected'
 
 // 文件变更相关类型
@@ -446,6 +504,29 @@ export interface TieXDesktopAPI {
     getAll: () => Promise<Record<string, string>>
     getDataDirectory: () => Promise<string>
     update: (key: string, value: string) => Promise<void>
+  }
+  aiSettings: {
+    getDefault: () => Promise<AiConfigInfo>
+    updateDefault: (input: Partial<AiConfigInfo>) => Promise<AiConfigInfo>
+    getConversation: (conversationId: string) => Promise<ConversationAiSettingsInfo | null>
+    updateConversation: (
+      conversationId: string,
+      configPatch: Partial<AiConfigInfo>,
+      overrideMaskPatch?: Partial<Record<keyof AiConfigInfo, boolean>>
+    ) => Promise<ConversationAiSettingsInfo>
+    resetConversation: (conversationId: string) => Promise<void>
+    getEffective: (conversationId: string) => Promise<EffectiveAiConfigInfo>
+  }
+  skills: {
+    list: () => Promise<SkillInfo[]>
+    scan: () => Promise<SkillInfo[]>
+    setEnabled: (id: string, enabled: boolean) => Promise<void>
+    delete: (id: string) => Promise<void>
+    getMarket: () => Promise<SkillMarketItemInfo[]>
+    installMarket: (id: string) => Promise<SkillInfo>
+    importCodex: () => Promise<SkillInfo[]>
+    openFolder: () => Promise<string>
+    resolveRefs: (content: string) => Promise<SkillRefResolutionInfo>
   }
   provider: {
     getDefault: () => Promise<ProviderInfo | null>

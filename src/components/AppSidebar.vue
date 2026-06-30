@@ -5,10 +5,16 @@ import { useUiStore } from '@/stores/ui.store'
 import { useConversationStore } from '@/stores/conversation.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
 import { useSettingsStore } from '@/stores/settings.store'
+import {
+  SKILL_MARKET_CATEGORIES,
+  normalizeSkillMarketCategory,
+  type SkillMarketCategoryId,
+} from '@/constants/skill-market'
 import type { ConversationInfo } from '@/types/global'
 import {
   ArrowLeft,
   Bot,
+  SlidersHorizontal,
   Database,
   FolderCog,
   PanelLeftClose,
@@ -27,6 +33,7 @@ import {
   X,
   ChevronDown,
   Users,
+  Wrench,
 } from 'lucide-vue-next'
 
 const appIconUrl = new URL('../../icon.png', import.meta.url).href
@@ -92,13 +99,17 @@ const displayUserName = computed(() => settingsStore.userDisplayName.trim() || '
 const displayUserInitial = computed(() => displayUserName.value.slice(0, 1).toUpperCase())
 const activeConversationId = computed(() => conversationStore.currentConversationId)
 const isSettingsRoute = computed(() => route.name === 'settings')
+const isSkillsRoute = computed(() => route.name === 'skills-market')
 const activeSettingsSection = computed(() => String(route.params.section ?? 'provider'))
+const activeSkillCategory = computed(() => normalizeSkillMarketCategory(route.query.category))
 
 const settingsSections = [
   { id: 'provider', label: '模型服务', icon: Bot },
+  { id: 'ai', label: '默认 AI', icon: SlidersHorizontal },
   { id: 'permissions', label: '任务与权限', icon: KeyRound },
   { id: 'agents', label: '多 Agent', icon: Users },
   { id: 'memory', label: '记忆偏好', icon: MemoryStick },
+  { id: 'skills', label: 'Skills', icon: Wrench },
   { id: 'data', label: '本地数据', icon: FolderCog },
   { id: 'stats', label: '数据统计', icon: Database },
 ] as const
@@ -162,6 +173,12 @@ function goSettings() {
   router.push('/settings')
 }
 
+function goSkillsMarket() {
+  uiStore.closeConversationDetail()
+  conversationStore.setCurrentConversation(null)
+  router.push('/skills')
+}
+
 async function returnFromSettings() {
   uiStore.closeConversationDetail()
   await router.push('/home')
@@ -171,6 +188,13 @@ function openSettingsSection(sectionId: string) {
   router.push({
     name: 'settings',
     params: { section: sectionId },
+  })
+}
+
+function openSkillCategory(categoryId: SkillMarketCategoryId) {
+  router.push({
+    name: 'skills-market',
+    query: categoryId === 'all' ? {} : { category: categoryId },
   })
 }
 
@@ -323,7 +347,7 @@ onMounted(() => {
 
     <div class="sidebar-actions">
       <button
-        v-if="!isSettingsRoute"
+        v-if="!isSettingsRoute && !isSkillsRoute"
         class="nav-row nav-row-primary"
         :class="{ collapsed: uiStore.sidebarCollapsed }"
         @click="createNewConversation"
@@ -348,7 +372,20 @@ onMounted(() => {
         <span class="nav-label" :class="{ hidden: uiStore.sidebarCollapsed }">返回应用</span>
       </button>
 
-      <div v-if="!isSettingsRoute" class="search-slot" :class="{ collapsed: uiStore.sidebarCollapsed }">
+      <button
+        v-if="!isSettingsRoute && !isSkillsRoute"
+        class="nav-row"
+        :class="{ collapsed: uiStore.sidebarCollapsed }"
+        @click="goSkillsMarket"
+        :title="uiStore.sidebarCollapsed ? 'Skills 市场' : undefined"
+      >
+        <span class="nav-icon">
+          <Wrench :size="15" />
+        </span>
+        <span class="nav-label" :class="{ hidden: uiStore.sidebarCollapsed }">Skills 市场</span>
+      </button>
+
+      <div v-if="!isSettingsRoute && !isSkillsRoute" class="search-slot" :class="{ collapsed: uiStore.sidebarCollapsed }">
         <button
           class="nav-row nav-row-icon-only search-collapsed-btn"
           :class="{ active: uiStore.sidebarCollapsed }"
@@ -378,8 +415,8 @@ onMounted(() => {
     <div class="sidebar-main" :class="{ collapsed: uiStore.sidebarCollapsed }">
       <div
         class="sidebar-main-inner"
-        :class="{ hidden: uiStore.sidebarCollapsed && !isSettingsRoute }"
-        :aria-hidden="uiStore.sidebarCollapsed && !isSettingsRoute"
+        :class="{ hidden: uiStore.sidebarCollapsed && !isSettingsRoute && !isSkillsRoute }"
+        :aria-hidden="uiStore.sidebarCollapsed && !isSettingsRoute && !isSkillsRoute"
       >
         <div v-if="isSettingsRoute" class="settings-group-list" :class="{ collapsed: uiStore.sidebarCollapsed }">
           <div class="settings-group-title" :class="{ hidden: uiStore.sidebarCollapsed }">设置</div>
@@ -396,6 +433,23 @@ onMounted(() => {
               <component :is="section.icon" :size="15" />
             </span>
             <span class="nav-label" :class="{ hidden: uiStore.sidebarCollapsed }">{{ section.label }}</span>
+          </button>
+        </div>
+
+        <div v-else-if="isSkillsRoute" class="settings-group-list" :class="{ collapsed: uiStore.sidebarCollapsed }">
+          <div class="settings-group-title" :class="{ hidden: uiStore.sidebarCollapsed }">Skills</div>
+          <button
+            v-for="category in SKILL_MARKET_CATEGORIES"
+            :key="category.id"
+            class="settings-nav-item"
+            :class="{ active: activeSkillCategory === category.id, collapsed: uiStore.sidebarCollapsed }"
+            @click="openSkillCategory(category.id)"
+            :title="uiStore.sidebarCollapsed ? category.label : undefined"
+          >
+            <span class="nav-icon">
+              <component :is="category.icon" :size="15" />
+            </span>
+            <span class="nav-label" :class="{ hidden: uiStore.sidebarCollapsed }">{{ category.label }}</span>
           </button>
         </div>
 
@@ -1125,6 +1179,7 @@ onMounted(() => {
 }
 
 .sidebar-footer {
+  margin-top: auto;
   padding: 8px;
   border-top: 1px solid var(--sidebar-divider);
   overflow: hidden;

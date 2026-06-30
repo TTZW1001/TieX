@@ -136,11 +136,12 @@ export class OpenAICompatibleProvider implements IModelProvider {
         return result
       }),
       temperature: request.temperature ?? config.temperature,
+      top_p: request.topP ?? config.topP,
       max_tokens: request.maxTokens ?? config.maxTokens,
       stream: streamEnabled,
     }
 
-    if (request.tools && request.tools.length > 0) {
+    if (config.toolsEnabled !== false && request.tools && request.tools.length > 0) {
       body.tools = request.tools
       body.tool_choice = request.toolChoice ?? 'auto'
     }

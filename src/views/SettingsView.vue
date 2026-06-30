@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings.store'
+import { useAiSettingsStore } from '@/stores/ai-settings.store'
+import { useSkillsStore } from '@/stores/skills.store'
 import { useUiStore } from '@/stores/ui.store'
 import UsageDonutChart from '@/components/UsageDonutChart.vue'
 import TokenSeriesChart from '@/components/TokenSeriesChart.vue'
@@ -14,6 +16,8 @@ import {
 const route = useRoute()
 const router = useRouter()
 const settingsStore = useSettingsStore()
+const aiSettingsStore = useAiSettingsStore()
+const skillsStore = useSkillsStore()
 const uiStore = useUiStore()
 const testResult = ref<string | null>(null)
 const saveResult = ref<string | null>(null)
@@ -27,6 +31,10 @@ const sections = {
     title: '模型服务',
     intro: '维护 Provider、模型和连接方式。',
   },
+  ai: {
+    title: '默认 AI',
+    intro: '设置新会话默认继承的模型请求参数。',
+  },
   permissions: {
     title: '任务与权限',
     intro: '控制默认权限边界、任务轮次和命令行为。',
@@ -39,6 +47,10 @@ const sections = {
     title: '记忆与偏好',
     intro: '管理称呼、偏好和待确认记忆。',
   },
+  skills: {
+    title: 'Skills 管理',
+    intro: '扫描、启用和管理本地安装的 Skills。',
+  },
   data: {
     title: '本地数据',
     intro: '查看数据库、缓存和日志保存在什么位置。',
@@ -50,7 +62,7 @@ const sections = {
 } as const
 
 type SettingsSectionId = keyof typeof sections
-const sectionOrder: SettingsSectionId[] = ['provider', 'permissions', 'agents', 'memory', 'data', 'stats']
+const sectionOrder: SettingsSectionId[] = ['provider', 'ai', 'permissions', 'agents', 'memory', 'skills', 'data', 'stats']
 
 const activeSection = computed<SettingsSectionId>(() => {
   const raw = String(route.params.section ?? 'provider') as SettingsSectionId
@@ -94,6 +106,16 @@ function providerCapabilitySummary(providerType: string, modelName: string) {
 
 const activeStatsSeries = computed(() => {
   return settingsStore.statsOverview?.token_series?.[statsRange.value] ?? []
+})
+
+const aiDefaultProvider = computed(() => {
+  return settingsStore.providers.find((item) => item.id === aiSettingsStore.defaultConfig.providerId) ?? null
+})
+
+const aiDefaultModelLabel = computed(() => {
+  const provider = aiDefaultProvider.value
+  if (!provider) return '未选择默认模型'
+  return `${provider.name} · ${aiSettingsStore.defaultConfig.modelName || provider.model_name}`
 })
 
 watch(
@@ -187,6 +209,23 @@ async function saveProviderSettings(message?: string) {
   showSaved(message)
 }
 
+async function saveAiSettings(message?: string) {
+  await aiSettingsStore.saveDefault()
+  showSaved(message)
+}
+
+function resetAiDefaults() {
+  aiSettingsStore.defaultConfig.temperature = null
+  aiSettingsStore.defaultConfig.topP = null
+  aiSettingsStore.defaultConfig.maxTokens = null
+  aiSettingsStore.defaultConfig.contextMessageLimit = 20
+  aiSettingsStore.defaultConfig.contextTokenLimit = null
+  aiSettingsStore.defaultConfig.streamEnabled = true
+  aiSettingsStore.defaultConfig.toolsEnabled = true
+  aiSettingsStore.defaultConfig.attachmentsEnabled = null
+  showSaved('已恢复默认 AI 参数，请记得保存')
+}
+
 async function saveMemorySettings(message?: string) {
   await settingsStore.saveMemorySettings()
   await settingsStore.loadStatsOverview()
@@ -215,7 +254,42 @@ async function rejectCandidate(candidateId: string) {
   showSaved('已忽略这条记忆候选')
 }
 
+async function refreshSkills() {
+  await skillsStore.scanSkills()
+  showSaved('Skills 扫描完成')
+}
+
+async function importCodexSkills() {
+  await skillsStore.importCodexSkills()
+  showSaved('已从 Codex 导入 Skills')
+}
+
+async function openSkillsFolder() {
+  await skillsStore.openFolder()
+}
+
+async function toggleSkill(id: string, enabled: boolean) {
+  await skillsStore.setEnabled(id, enabled)
+}
+
+async function deleteSkill(id: string) {
+  const skill = skillsStore.skills.find((item) => item.id === id)
+  const confirmed = await uiStore.confirm({
+    title: '卸载 Skill',
+    message: `确定卸载 ${skill?.displayName || skill?.name || '这个 Skill'}？`,
+    detail: 'TieX 只会删除由市场安装到应用 skills 目录内的文件；手动导入的外部目录只会移除记录。',
+    confirmText: '卸载',
+    cancelText: '取消',
+    variant: 'danger',
+  })
+  if (!confirmed) return
+  await skillsStore.deleteSkill(id)
+  showSaved('Skill 已卸载')
+}
+
 onMounted(() => {
+  aiSettingsStore.loadDefault()
+  skillsStore.loadSkills()
   if (!route.params.section) {
     router.replace({ name: 'settings', params: { section: activeSection.value } })
   }
@@ -395,6 +469,145 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div v-if="testResult" class="test-result" :class="{ success: testSuccess, error: testSuccess === false }">{{ testResult }}</div>
+          </div>
+
+          <div v-else-if="activeSection === 'ai'" class="settings-card">
+            <div class="card-head">
+              <div>
+                <h3>默认 AI 配置</h3>
+                <p class="card-copy">这些参数会作为新会话和未覆盖会话的默认请求策略；Provider 连接信息仍在“模型服务”里维护。</p>
+              </div>
+            </div>
+
+            <div class="settings-stack">
+              <div class="settings-panel">
+                <div class="panel-title">默认模型</div>
+                <div class="settings-list">
+                  <div class="settings-row row-field">
+                    <div class="settings-row-copy">
+                      <div class="switch-title">默认 Provider</div>
+                      <div class="switch-desc">新会话默认继承这条 Provider；会话内仍可单独覆盖。</div>
+                    </div>
+                    <div class="settings-row-control">
+                      <select v-model="aiSettingsStore.defaultConfig.providerId">
+                        <option :value="null">跟随模型服务默认 Provider</option>
+                        <option v-for="item in settingsStore.providers" :key="item.id" :value="item.id">
+                          {{ item.name }} · {{ item.model_name }}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="settings-row row-field">
+                    <div class="settings-row-copy">
+                      <div class="switch-title">默认模型名</div>
+                      <div class="switch-desc">留空时使用 Provider 自身配置的模型名。</div>
+                    </div>
+                    <div class="settings-row-control">
+                      <input v-model="aiSettingsStore.defaultConfig.modelName" placeholder="留空则使用 Provider 模型名" />
+                      <div class="model-capability-panel">
+                        <div class="capability-panel-head">
+                          <span>{{ aiDefaultModelLabel }}</span>
+                          <b v-if="aiDefaultProvider">{{ providerCapabilitySummary(aiDefaultProvider.provider_type, aiSettingsStore.defaultConfig.modelName || aiDefaultProvider.model_name) }}</b>
+                        </div>
+                        <div v-if="aiDefaultProvider" class="capability-strip">
+                          <span
+                            v-for="badge in providerCapabilityBadges(aiDefaultProvider.provider_type, aiSettingsStore.defaultConfig.modelName || aiDefaultProvider.model_name)"
+                            :key="badge.key"
+                            class="capability-pill"
+                            :class="{ off: !badge.enabled }"
+                          >
+                            {{ badge.label }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-panel">
+                <div class="panel-title">生成参数</div>
+                <div class="settings-list">
+                  <div class="settings-row row-field">
+                    <div class="settings-row-copy">
+                      <div class="switch-title">Temperature</div>
+                      <div class="switch-desc">留空时不传该参数，由模型服务自行采用默认值。</div>
+                    </div>
+                    <div class="settings-row-control short-control">
+                      <input v-model.number="aiSettingsStore.defaultConfig.temperature" type="number" min="0" max="2" step="0.1" placeholder="默认" />
+                    </div>
+                  </div>
+                  <div class="settings-row row-field">
+                    <div class="settings-row-copy">
+                      <div class="switch-title">Top P</div>
+                      <div class="switch-desc">留空时不传该参数；一般不需要和 temperature 同时大幅调整。</div>
+                    </div>
+                    <div class="settings-row-control short-control">
+                      <input v-model.number="aiSettingsStore.defaultConfig.topP" type="number" min="0" max="1" step="0.05" placeholder="默认" />
+                    </div>
+                  </div>
+                  <div class="settings-row row-field">
+                    <div class="settings-row-copy">
+                      <div class="switch-title">输出 token 上限</div>
+                      <div class="switch-desc">对应 OpenAI 兼容接口的 max_tokens；留空则不主动限制。</div>
+                    </div>
+                    <div class="settings-row-control short-control">
+                      <input v-model.number="aiSettingsStore.defaultConfig.maxTokens" type="number" min="1" step="256" placeholder="默认" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-panel">
+                <div class="panel-title">上下文与能力</div>
+                <div class="settings-list">
+                  <div class="settings-row row-field">
+                    <div class="settings-row-copy">
+                      <div class="switch-title">上下文消息数量上限</div>
+                      <div class="switch-desc">控制每轮模型请求最多带入多少条最近历史消息。</div>
+                    </div>
+                    <div class="settings-row-control short-control">
+                      <input v-model.number="aiSettingsStore.defaultConfig.contextMessageLimit" type="number" min="1" max="200" step="1" />
+                    </div>
+                  </div>
+                  <div class="settings-row row-field">
+                    <div class="settings-row-copy">
+                      <div class="switch-title">上下文 token 上限</div>
+                      <div class="switch-desc">第一版先保存配置并进入快照说明，后续接入真实 token 裁剪。</div>
+                    </div>
+                    <div class="settings-row-control short-control">
+                      <input v-model.number="aiSettingsStore.defaultConfig.contextTokenLimit" type="number" min="1000" step="1000" placeholder="暂不限制" />
+                    </div>
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row-copy">
+                      <div class="switch-title">启用流式输出</div>
+                      <div class="switch-desc">关闭后模型会一次性返回结果，工具调用仍可继续解析。</div>
+                    </div>
+                    <div class="switch" :class="{ on: aiSettingsStore.defaultConfig.streamEnabled !== false }" @click="aiSettingsStore.defaultConfig.streamEnabled = aiSettingsStore.defaultConfig.streamEnabled === false"></div>
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row-copy">
+                      <div class="switch-title">允许工具调用</div>
+                      <div class="switch-desc">关闭后 Agent 本轮不会向模型暴露本地工具定义。</div>
+                    </div>
+                    <div class="switch" :class="{ on: aiSettingsStore.defaultConfig.toolsEnabled !== false }" @click="aiSettingsStore.defaultConfig.toolsEnabled = aiSettingsStore.defaultConfig.toolsEnabled === false"></div>
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row-copy">
+                      <div class="switch-title">附件能力提示</div>
+                      <div class="switch-desc">默认跟随模型能力判断；后续可扩展为强制禁用附件。</div>
+                    </div>
+                    <div class="switch" :class="{ on: aiSettingsStore.defaultConfig.attachmentsEnabled === true }" @click="aiSettingsStore.defaultConfig.attachmentsEnabled = aiSettingsStore.defaultConfig.attachmentsEnabled === true ? null : true"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="actions">
+              <button class="secondary-btn" @click="resetAiDefaults">重置参数</button>
+              <button class="send-btn" @click="saveAiSettings('默认 AI 配置已保存')">保存设置</button>
+            </div>
           </div>
 
           <div v-else-if="activeSection === 'permissions'" class="settings-card">
@@ -639,6 +852,52 @@ onBeforeUnmount(() => {
 
             <div class="actions">
               <button class="send-btn" @click="saveMemorySettings('用户偏好与记忆已保存')">保存设置</button>
+            </div>
+          </div>
+
+          <div v-else-if="activeSection === 'skills'" class="settings-card">
+            <div class="card-head">
+              <div>
+                <h3>Skills 管理</h3>
+                <p class="card-copy">TieX 会扫描本地 skills 目录中每个包含 SKILL.md 的文件夹；启用后可在输入框用 $skillName 引用。</p>
+              </div>
+            </div>
+
+            <div class="settings-panel compact-panel">
+              <div class="settings-list">
+                <div class="settings-row">
+                  <div class="settings-row-copy">
+                    <div class="switch-title">本地 Skills 文件夹</div>
+                    <div class="switch-desc">手动放入 skill 文件夹后，点击刷新扫描即可导入。</div>
+                  </div>
+                  <div class="inline-actions">
+                    <button class="secondary-btn" @click="openSkillsFolder">打开文件夹</button>
+                    <button class="secondary-btn" @click="importCodexSkills">从 Codex 导入</button>
+                    <button class="send-btn" @click="refreshSkills">刷新扫描</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="skillsStore.skills.length === 0" class="memory-empty">
+              还没有安装任何 Skill。可以从侧边栏的 Skills 市场安装，也可以手动把包含 SKILL.md 的文件夹放进本地 skills 目录。
+            </div>
+            <div v-else class="skill-list">
+              <div v-for="skill in skillsStore.skills" :key="skill.id" class="skill-card">
+                <div class="skill-card-main">
+                  <div class="skill-title-row">
+                    <span class="skill-title">{{ skill.displayName }}</span>
+                    <span class="memory-tag">{{ skill.name }}</span>
+                    <span v-if="skill.version" class="memory-tag subtle">{{ skill.version }}</span>
+                  </div>
+                  <div class="skill-desc">{{ skill.description || skill.summary || '这个 Skill 暂无描述。' }}</div>
+                  <div class="skill-path">{{ skill.path }}</div>
+                </div>
+                <div class="skill-actions">
+                  <div class="switch" :class="{ on: skill.enabled }" @click="toggleSkill(skill.id, !skill.enabled)"></div>
+                  <button class="danger-btn small-btn" @click="deleteSkill(skill.id)">卸载</button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1352,6 +1611,70 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.inline-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.skill-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.skill-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--settings-stroke-1);
+  border-radius: 18px;
+  background: var(--settings-surface-1);
+}
+
+.skill-card-main {
+  min-width: 0;
+}
+
+.skill-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.skill-title {
+  color: var(--text-strong);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.skill-desc {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.skill-path {
+  margin-top: 8px;
+  color: var(--sidebar-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.skill-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
 }
 
 .agent-profile-list {

@@ -636,6 +636,97 @@ CREATE INDEX IF NOT EXISTS idx_command_sessions_status ON command_sessions(statu
   '012_add_permission_decision_reason': `
 ALTER TABLE permission_requests ADD COLUMN decision_reason TEXT;
 `,
+  '013_create_ai_settings_and_skills': `
+CREATE TABLE IF NOT EXISTS ai_presets (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT 'global',
+  provider_id TEXT,
+  model_name TEXT,
+  temperature REAL,
+  top_p REAL,
+  max_tokens INTEGER,
+  context_message_limit INTEGER,
+  context_token_limit INTEGER,
+  stream_enabled INTEGER,
+  tools_enabled INTEGER,
+  attachments_enabled INTEGER,
+  custom_params_json TEXT,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (provider_id) REFERENCES model_providers(id)
+);
+
+CREATE TABLE IF NOT EXISTS conversation_ai_settings (
+  conversation_id TEXT PRIMARY KEY,
+  provider_id TEXT,
+  model_name TEXT,
+  temperature REAL,
+  top_p REAL,
+  max_tokens INTEGER,
+  context_message_limit INTEGER,
+  context_token_limit INTEGER,
+  stream_enabled INTEGER,
+  tools_enabled INTEGER,
+  attachments_enabled INTEGER,
+  override_mask_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+  FOREIGN KEY (provider_id) REFERENCES model_providers(id)
+);
+
+CREATE TABLE IF NOT EXISTS installed_skills (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  description TEXT,
+  source TEXT,
+  version TEXT,
+  path TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  install_type TEXT NOT NULL DEFAULT 'local',
+  content_hash TEXT,
+  summary TEXT,
+  token_estimate INTEGER,
+  last_scanned_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS skill_market_items (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  description TEXT,
+  version TEXT,
+  tags_json TEXT,
+  bundled_path TEXT,
+  installed_skill_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (installed_skill_id) REFERENCES installed_skills(id)
+);
+
+CREATE TABLE IF NOT EXISTS message_skill_refs (
+  id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  skill_id TEXT NOT NULL,
+  skill_name TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'explicit',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+  FOREIGN KEY (skill_id) REFERENCES installed_skills(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_presets_scope ON ai_presets(scope);
+CREATE INDEX IF NOT EXISTS idx_ai_presets_default ON ai_presets(is_default);
+CREATE INDEX IF NOT EXISTS idx_installed_skills_enabled ON installed_skills(enabled);
+CREATE INDEX IF NOT EXISTS idx_message_skill_refs_message ON message_skill_refs(message_id);
+CREATE INDEX IF NOT EXISTS idx_message_skill_refs_conversation ON message_skill_refs(conversation_id);
+`,
 }
 
 function runMigrations(database: Database.Database): void {
@@ -757,6 +848,44 @@ function ensureSeedData(database: Database.Database): void {
       now,
       DEFAULT_PROVIDER.id
     )
+  }
+
+  try {
+    const defaultProviderRow = database
+      .prepare('SELECT id, model_name, temperature, max_tokens, stream_enabled FROM model_providers WHERE is_default = 1 AND is_deleted = 0')
+      .get() as {
+        id: string
+        model_name: string
+        temperature: number | null
+        max_tokens: number | null
+        stream_enabled: number | null
+      } | undefined
+
+    const existingDefaultAiPreset = database
+      .prepare("SELECT id FROM ai_presets WHERE scope = 'global' AND is_default = 1")
+      .get() as { id: string } | undefined
+
+    if (!existingDefaultAiPreset && defaultProviderRow) {
+      database.prepare(
+        `INSERT INTO ai_presets (
+          id, name, scope, provider_id, model_name, temperature, top_p, max_tokens,
+          context_message_limit, context_token_limit, stream_enabled, tools_enabled,
+          attachments_enabled, custom_params_json, is_default, created_at, updated_at
+        ) VALUES (?, ?, 'global', ?, ?, ?, NULL, ?, 20, NULL, ?, 1, NULL, NULL, 1, ?, ?)`
+      ).run(
+        'default-ai-config',
+        '默认 AI 配置',
+        defaultProviderRow.id,
+        defaultProviderRow.model_name,
+        defaultProviderRow.temperature,
+        defaultProviderRow.max_tokens,
+        defaultProviderRow.stream_enabled ?? 1,
+        now,
+        now
+      )
+    }
+  } catch (err) {
+    console.warn('Failed to ensure default AI config:', err)
   }
 }
 

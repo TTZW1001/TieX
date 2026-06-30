@@ -2,14 +2,12 @@
  * Task Controller - 任务创建、状态管理、停止
  */
 import { randomUUID } from 'crypto'
-import { safeStorage } from 'electron'
 import { TaskRepository } from '../database/repositories/task.repository'
 import { TaskStepRepository } from '../database/repositories/task-step.repository'
 import { OperationLogRepository } from '../database/repositories/operation-log.repository'
 import { MessageRepository } from '../database/repositories/message.repository'
 import { MessageAttachmentRepository } from '../database/repositories/message-attachment.repository'
 import { ConversationRepository } from '../database/repositories/conversation.repository'
-import { ProviderRepository } from '../database/repositories/provider.repository'
 import { WorkspaceRepository } from '../database/repositories/workspace.repository'
 import { SettingsRepository } from '../database/repositories/settings.repository'
 import type { ProviderConfig } from '../providers/model-provider'
@@ -25,6 +23,8 @@ import { normalizeAttachmentInput, readAttachmentSize } from '../services/attach
 import { MemoryService } from '../services/memory.service'
 import { getProviderCapabilities } from '../providers/provider-capabilities'
 import { AGENT_PROFILES, MULTI_AGENT_ENABLED_KEY, type AgentRole } from './agent-profiles'
+import { AiSettingsService } from '../services/ai-settings.service'
+import { SkillService, skillRepo } from '../services/skill.service'
 
 const taskRepo = new TaskRepository()
 const taskStepRepo = new TaskStepRepository()
@@ -32,10 +32,11 @@ const operationLogRepo = new OperationLogRepository()
 const messageRepo = new MessageRepository()
 const attachmentRepo = new MessageAttachmentRepository()
 const conversationRepo = new ConversationRepository()
-const providerRepo = new ProviderRepository()
 const workspaceRepo = new WorkspaceRepository()
 const settingsRepo = new SettingsRepository()
 const memoryService = new MemoryService()
+const aiSettingsService = new AiSettingsService()
+const skillService = new SkillService()
 
 /** 运行时上下文 */
 export interface RuntimeContext {
@@ -99,22 +100,17 @@ class TaskControllerImpl {
     }
 
     // 获取 Provider
-    const conversationProviderId = conversation.provider_id
+    const effectiveAiConfig = aiSettingsService.getEffectiveConfig(request.conversationId)
+    const conversationProviderId = effectiveAiConfig.providerId ?? conversation.provider_id
     if (!conversationProviderId) {
       throw new Error('会话未关联模型服务商')
     }
     const multiAgentEnabled = (settingsRepo.get(MULTI_AGENT_ENABLED_KEY) ?? 'true') === 'true'
-    const responderProviderId =
-      this.readConfiguredProviderId('responder') ??
-      conversationProviderId
     const responderConfig = {
-      providerConfig: await this.getProviderConfig(responderProviderId),
+      providerConfig: await aiSettingsService.getProviderConfig(request.conversationId, 'responder'),
       prompt: this.readConfiguredPrompt('responder'),
     }
-    const implementationProviderId =
-      this.readConfiguredProviderId('implementation') ??
-      conversationProviderId
-    const providerConfig = await this.getProviderConfig(implementationProviderId)
+    const providerConfig = await aiSettingsService.getProviderConfig(request.conversationId, 'implementation')
     if ((request.attachments?.length ?? 0) > 0) {
       const capability = getProviderCapabilities(providerConfig.providerType, providerConfig.model)
       if (!capability.supportsMultimodal) {
@@ -123,7 +119,7 @@ class TaskControllerImpl {
     }
 
     const collaboratorConfigs = multiAgentEnabled
-      ? await this.loadCollaboratorConfigs(conversationProviderId)
+      ? await this.loadCollaboratorConfigs(request.conversationId)
       : {}
 
     // 获取工作区信息
@@ -138,6 +134,17 @@ class TaskControllerImpl {
         workspaceName = workspace.name
         workspaceRootName = workspace.root_path.split(/[\\/]/).pop() || workspace.name
       }
+    }
+
+    const skillRefs = skillService.resolveRefs(request.content.trim())
+    if (skillRefs.missing.length > 0) {
+      throw new Error(`未找到 Skill：${skillRefs.missing.join('、')}`)
+    }
+    if (skillRefs.disabled.length > 0) {
+      throw new Error(`Skill 已禁用：${skillRefs.disabled.join('、')}`)
+    }
+    if (skillRefs.refs.length > 3) {
+      throw new Error('每轮最多引用 3 个 Skills，请减少 $skill 引用数量')
     }
 
     // 创建用户消息
@@ -165,6 +172,7 @@ class TaskControllerImpl {
         })
       )
     }
+    skillRepo.createMessageRefs(userMessage.id, request.conversationId, skillRefs.refs)
     memoryService.ingestUserMessage(request.content.trim(), userMessage.id, workspaceId ?? conversation.workspace_id ?? null)
 
     // 自动标题
@@ -180,7 +188,7 @@ class TaskControllerImpl {
       id: taskId,
       conversation_id: request.conversationId,
       user_message_id: userMessage.id,
-      provider_id: implementationProviderId,
+      provider_id: providerConfig.id,
       workspace_id: workspaceId ?? null,
       permission_mode: permissionMode,
       title: request.title ?? request.content.trim().slice(0, 50),
@@ -199,7 +207,7 @@ class TaskControllerImpl {
     const runtime: RuntimeContext = {
       taskId,
       conversationId: request.conversationId,
-      providerId: implementationProviderId,
+      providerId: providerConfig.id,
       workspaceId: workspaceId ?? null,
       workspaceRoot,
       workspaceName,
@@ -238,15 +246,14 @@ class TaskControllerImpl {
     return (settingsRepo.get(profile.promptKey) ?? profile.defaultPrompt).trim()
   }
 
-  private async loadCollaboratorConfigs(conversationProviderId: string) {
+  private async loadCollaboratorConfigs(conversationId: string) {
     const roles: Array<Exclude<AgentRole, 'implementation' | 'responder'>> = ['research', 'memory']
     const entries = await Promise.all(
       roles.map(async (role) => {
-        const providerId = this.readConfiguredProviderId(role) ?? conversationProviderId
         return [
           role,
           {
-            providerConfig: await this.getProviderConfig(providerId),
+            providerConfig: await aiSettingsService.getProviderConfig(conversationId, role),
             prompt: this.readConfiguredPrompt(role),
           },
         ] as const
@@ -356,38 +363,6 @@ class TaskControllerImpl {
       }
     }
     this.runtimes.clear()
-  }
-
-  /**
-   * 获取解密后的 Provider 配置
-   */
-  private async getProviderConfig(providerId: string): Promise<ProviderConfig> {
-    const provider = providerRepo.getById(providerId)
-    if (!provider) {
-      throw new Error('模型服务商配置不存在')
-    }
-
-    let apiKey = ''
-    const encrypted = providerRepo.getEncryptedApiKey(providerId)
-    if (encrypted) {
-      if (!safeStorage.isEncryptionAvailable()) {
-        throw new Error('系统不支持安全存储')
-      }
-      apiKey = safeStorage.decryptString(encrypted)
-    }
-
-    return {
-      id: provider.id,
-      name: provider.name,
-      providerType: provider.provider_type,
-      baseUrl: provider.base_url,
-      model: provider.model_name,
-      apiKey,
-      temperature: provider.temperature ?? undefined,
-      maxTokens: provider.max_tokens ?? undefined,
-      timeoutMs: provider.timeout_ms,
-      streamEnabled: provider.stream_enabled !== 0,
-    }
   }
 
   /**

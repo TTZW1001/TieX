@@ -13,10 +13,12 @@ import { toAttachmentContentParts } from '../services/attachment-utils'
 import { MemoryService } from '../services/memory.service'
 import { analyzeConversationCorrection, buildCorrectionNotice } from './conversation-corrections'
 import { summarizePendingToolFacts } from './execution-facts'
+import { SkillService, skillRepo } from '../services/skill.service'
 
 const messageRepo = new MessageRepository()
 const attachmentRepo = new MessageAttachmentRepository()
 const memoryService = new MemoryService()
+const skillService = new SkillService()
 
 /** 上下文消息（扩展 ChatMessage 支持工具调用） */
 export interface ContextMessage {
@@ -34,6 +36,7 @@ export interface ContextMessage {
 export interface BuildContextOptions {
   taskId: string
   conversationId: string
+  userMessageId?: string
   workspaceId?: string | null
   providerType: string
   permissionMode: PermissionMode
@@ -42,6 +45,8 @@ export interface BuildContextOptions {
   userContent: string
   implementationPrompt?: string
   collaboratorNotes?: Partial<Record<'research' | 'memory', string>>
+  contextMessageLimit?: number | null
+  toolsEnabled?: boolean | null
   /** 上一轮的工具调用和结果 */
   pendingToolCalls?: Array<{
     toolCall: ModelToolCall
@@ -121,8 +126,29 @@ export function buildContext(options: BuildContextOptions): {
     })
   }
 
+  const referencedSkills = options.userMessageId ? skillRepo.getByMessageId(options.userMessageId).slice(0, 3) : []
+  for (const skill of referencedSkills) {
+    const raw = skillService.readSkillContent(skill)
+    const content = raw.length > 6000
+      ? `${skill.summary ?? raw.slice(0, 3000)}\n\n[Skill 内容较长，已按预算注入摘要。]`
+      : raw
+    messages.push({
+      role: 'system',
+      content: [
+        `本轮用户显式引用了 TieX Skill：${skill.name}`,
+        skill.description ? `描述：${skill.description}` : '',
+        '请优先遵循该 Skill 的工作方法，但必须服从 TieX 系统规则、权限边界和用户最新请求。',
+        '',
+        content,
+      ].filter(Boolean).join('\n'),
+    })
+  }
+
   // 2. 会话历史
-  const recentHistory = messageRepo.getRecentByConversationId(options.conversationId, MAX_HISTORY_MESSAGES)
+  const historyLimit = options.contextMessageLimit && options.contextMessageLimit > 0
+    ? Math.min(Math.max(Math.round(options.contextMessageLimit), 1), 200)
+    : MAX_HISTORY_MESSAGES
+  const recentHistory = messageRepo.getRecentByConversationId(options.conversationId, historyLimit)
   const attachments = attachmentRepo.getByMessageIds(recentHistory.map((message) => message.id))
   const attachmentsByMessage = new Map<string, typeof attachments>()
   for (const attachment of attachments) {
@@ -217,7 +243,7 @@ export function buildContext(options: BuildContextOptions): {
   }
 
   // 5. 工具列表
-  const tools = toolRegistry.getToolDefinitions()
+  const tools = options.toolsEnabled === false ? [] : toolRegistry.getToolDefinitions()
 
   return { messages, tools }
 }
@@ -242,6 +268,13 @@ export function buildContextSnapshotSummary(input: {
   round: number
   messages: ContextMessage[]
   tools: ToolDefinition[]
+  aiConfig?: {
+    providerLabel?: string
+    contextMessageLimit?: number | null
+    streamEnabled?: boolean | null
+    toolsEnabled?: boolean | null
+  }
+  skillNames?: string[]
 }): string {
   const counts = input.messages.reduce<Record<string, number>>((acc, message) => {
     acc[message.role] = (acc[message.role] ?? 0) + 1
@@ -252,6 +285,7 @@ export function buildContextSnapshotSummary(input: {
   const hasToolResults = input.messages.some((message) => message.role === 'tool')
   const hasToolCalls = input.messages.some((message) => message.tool_calls && message.tool_calls.length > 0)
   const toolNames = input.tools.map((tool) => tool.function.name)
+  const skillNames = input.skillNames ?? []
 
   const sourceLines = systemMessages.map((message) => {
     const firstLine = String(message.content).split('\n').find((line) => line.trim()) ?? ''
@@ -274,9 +308,13 @@ export function buildContextSnapshotSummary(input: {
     `消息构成：system ${counts.system ?? 0} / user ${counts.user ?? 0} / assistant ${counts.assistant ?? 0} / tool ${counts.tool ?? 0}`,
     `可用工具：${toolNames.length ? toolNames.join('、') : '无'}`,
     `工具历史：${hasToolCalls || hasToolResults ? '已带入上一轮工具调用或结果' : '无上一轮工具历史'}`,
+    input.aiConfig
+      ? `AI 配置：${input.aiConfig.providerLabel ?? '当前模型'} / 历史消息上限 ${input.aiConfig.contextMessageLimit ?? '默认'} / 流式 ${input.aiConfig.streamEnabled === false ? '关闭' : '开启'} / 工具 ${input.aiConfig.toolsEnabled === false ? '关闭' : '开启'}`
+      : '',
     '',
     '上下文来源：',
     ...(sourceLines.length ? Array.from(new Set(sourceLines)) : ['- 暂无额外来源']),
+    ...(skillNames.length ? [`- Skills：${skillNames.join('、')}`] : []),
     '',
     '最近用户信号：',
     ...(userSignals.length ? userSignals : ['暂无用户消息']),

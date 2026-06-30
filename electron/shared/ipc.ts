@@ -6,6 +6,25 @@ export const IPC_SETTINGS_GET_ALL = 'settings:getAll'
 export const IPC_SETTINGS_UPDATE = 'settings:update'
 export const IPC_SETTINGS_GET_DATA_DIRECTORY = 'settings:getDataDirectory'
 
+// AI 配置相关
+export const IPC_AI_SETTINGS_GET_DEFAULT = 'aiSettings:getDefault'
+export const IPC_AI_SETTINGS_UPDATE_DEFAULT = 'aiSettings:updateDefault'
+export const IPC_AI_SETTINGS_GET_CONVERSATION = 'aiSettings:getConversation'
+export const IPC_AI_SETTINGS_UPDATE_CONVERSATION = 'aiSettings:updateConversation'
+export const IPC_AI_SETTINGS_RESET_CONVERSATION = 'aiSettings:resetConversation'
+export const IPC_AI_SETTINGS_GET_EFFECTIVE = 'aiSettings:getEffective'
+
+// Skills 相关
+export const IPC_SKILLS_LIST = 'skills:list'
+export const IPC_SKILLS_SCAN = 'skills:scan'
+export const IPC_SKILLS_SET_ENABLED = 'skills:setEnabled'
+export const IPC_SKILLS_DELETE = 'skills:delete'
+export const IPC_SKILLS_GET_MARKET = 'skills:getMarket'
+export const IPC_SKILLS_INSTALL_MARKET = 'skills:installMarket'
+export const IPC_SKILLS_IMPORT_CODEX = 'skills:importCodex'
+export const IPC_SKILLS_OPEN_FOLDER = 'skills:openFolder'
+export const IPC_SKILLS_RESOLVE_REFS = 'skills:resolveRefs'
+
 // 提供者相关
 export const IPC_PROVIDER_GET_DEFAULT = 'provider:getDefault'
 export const IPC_PROVIDER_LIST = 'provider:list'

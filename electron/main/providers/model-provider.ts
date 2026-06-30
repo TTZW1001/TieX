@@ -12,9 +12,13 @@ export interface ProviderConfig {
   model: string
   apiKey: string // 解密后的明文，仅在主进程内存中使用
   temperature?: number
+  topP?: number
   maxTokens?: number
+  contextMessageLimit?: number | null
+  contextTokenLimit?: number | null
   timeoutMs: number
   streamEnabled?: boolean
+  toolsEnabled?: boolean
 }
 
 export interface ChatTextPart {
@@ -47,6 +51,7 @@ export interface ChatMessage {
 export interface ModelRequest {
   messages: ChatMessage[]
   temperature?: number
+  topP?: number
   maxTokens?: number
   /** 工具定义（Agent 模式） */
   tools?: ToolDefinition[]

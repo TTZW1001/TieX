@@ -1,13 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ArtifactInfo,
+  AiConfigInfo,
   CommandOutputInfo,
   CommandSessionInfo,
+  ConversationAiSettingsInfo,
+  EffectiveAiConfigInfo,
   FileChangeInfo,
   OperationLogEntity,
   PermissionDecision,
   PermissionRequestInfo,
   ProviderInfo,
+  SkillInfo,
+  SkillMarketItemInfo,
+  SkillRefResolutionInfo,
   StatsOverviewInfo,
   TaskEvent,
   TaskInfo,
@@ -36,6 +42,36 @@ const api = {
     getDataDirectory: (): Promise<string> => ipcRenderer.invoke('settings:getDataDirectory'),
     update: (key: string, value: string): Promise<void> =>
       ipcRenderer.invoke('settings:update', key, value),
+  },
+  aiSettings: {
+    getDefault: (): Promise<AiConfigInfo> => ipcRenderer.invoke('aiSettings:getDefault'),
+    updateDefault: (input: Partial<AiConfigInfo>): Promise<AiConfigInfo> =>
+      ipcRenderer.invoke('aiSettings:updateDefault', input),
+    getConversation: (conversationId: string): Promise<ConversationAiSettingsInfo | null> =>
+      ipcRenderer.invoke('aiSettings:getConversation', conversationId),
+    updateConversation: (
+      conversationId: string,
+      configPatch: Partial<AiConfigInfo>,
+      overrideMaskPatch?: Partial<Record<keyof AiConfigInfo, boolean>>
+    ): Promise<ConversationAiSettingsInfo> =>
+      ipcRenderer.invoke('aiSettings:updateConversation', conversationId, configPatch, overrideMaskPatch),
+    resetConversation: (conversationId: string): Promise<void> =>
+      ipcRenderer.invoke('aiSettings:resetConversation', conversationId),
+    getEffective: (conversationId: string): Promise<EffectiveAiConfigInfo> =>
+      ipcRenderer.invoke('aiSettings:getEffective', conversationId),
+  },
+  skills: {
+    list: (): Promise<SkillInfo[]> => ipcRenderer.invoke('skills:list'),
+    scan: (): Promise<SkillInfo[]> => ipcRenderer.invoke('skills:scan'),
+    setEnabled: (id: string, enabled: boolean): Promise<void> =>
+      ipcRenderer.invoke('skills:setEnabled', id, enabled),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('skills:delete', id),
+    getMarket: (): Promise<SkillMarketItemInfo[]> => ipcRenderer.invoke('skills:getMarket'),
+    installMarket: (id: string): Promise<SkillInfo> => ipcRenderer.invoke('skills:installMarket', id),
+    importCodex: (): Promise<SkillInfo[]> => ipcRenderer.invoke('skills:importCodex'),
+    openFolder: (): Promise<string> => ipcRenderer.invoke('skills:openFolder'),
+    resolveRefs: (content: string): Promise<SkillRefResolutionInfo> =>
+      ipcRenderer.invoke('skills:resolveRefs', content),
   },
   provider: {
     list: (): Promise<ProviderInfo[]> => ipcRenderer.invoke('provider:list'),

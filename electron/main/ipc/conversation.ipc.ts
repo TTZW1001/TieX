@@ -11,22 +11,14 @@ import {
   IPC_CONVERSATION_DELETE,
 } from '../../shared/ipc'
 import { ConversationRepository } from '../database/repositories/conversation.repository'
-import { ProviderRepository } from '../database/repositories/provider.repository'
 import { SettingsRepository } from '../database/repositories/settings.repository'
 
 const conversationRepo = new ConversationRepository()
-const providerRepo = new ProviderRepository()
 const settingsRepo = new SettingsRepository()
 
 export function registerConversationIpc(): void {
   ipcMain.handle(IPC_CONVERSATION_CREATE, async (_event, data?: Record<string, unknown>) => {
     const payload = { ...(data ?? {}) }
-    if (!payload.provider_id) {
-      const defaultProvider = providerRepo.getDefault()
-      if (defaultProvider) {
-        payload.provider_id = defaultProvider.id
-      }
-    }
     if (!payload.permission_mode) {
       const hasWorkspace = typeof payload.workspace_id === 'string' && payload.workspace_id.trim().length > 0
       payload.permission_mode = hasWorkspace ? settingsRepo.get('default_permission_mode') ?? 'read' : 'chat'

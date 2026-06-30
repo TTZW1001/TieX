@@ -698,6 +698,7 @@ export async function runImplementationPass(
     const { messages, tools } = buildContext({
       taskId,
       conversationId,
+      userMessageId: runtime.userMessageId,
       workspaceId: runtime.workspaceId ?? null,
       providerType: runtime.providerConfig.providerType,
       permissionMode: runtime.permissionMode,
@@ -706,6 +707,8 @@ export async function runImplementationPass(
       userContent: runtime.userContent,
       implementationPrompt: runtime.implementationPrompt,
       collaboratorNotes: runtime.collaboratorNotes,
+      contextMessageLimit: runtime.providerConfig.contextMessageLimit,
+      toolsEnabled: runtime.providerConfig.toolsEnabled,
       pendingToolCalls,
     })
 
@@ -717,6 +720,15 @@ export async function runImplementationPass(
         round: runtime.round,
         messages,
         tools,
+        aiConfig: {
+          providerLabel: `${runtime.providerConfig.name} · ${runtime.providerConfig.model}`,
+          contextMessageLimit: runtime.providerConfig.contextMessageLimit,
+          streamEnabled: runtime.providerConfig.streamEnabled,
+          toolsEnabled: runtime.providerConfig.toolsEnabled,
+        },
+        skillNames: messages
+          .filter((message) => message.role === 'system' && String(message.content).startsWith('本轮用户显式引用了 TieX Skill：'))
+          .map((message) => String(message.content).split('\n')[0].replace('本轮用户显式引用了 TieX Skill：', '')),
       }),
     })
     taskStepRepo.updateStatus(contextSnapshotStep.id, 'completed')
@@ -733,9 +745,10 @@ export async function runImplementationPass(
     const modelRequest: ModelRequest = {
       messages: messages as any,
       temperature: runtime.providerConfig.temperature,
+      topP: runtime.providerConfig.topP,
       maxTokens: runtime.providerConfig.maxTokens,
-      tools: tools.length > 0 ? tools : undefined,
-      toolChoice: tools.length > 0 ? 'auto' : undefined,
+      tools: runtime.providerConfig.toolsEnabled === false ? undefined : (tools.length > 0 ? tools : undefined),
+      toolChoice: runtime.providerConfig.toolsEnabled === false ? undefined : (tools.length > 0 ? 'auto' : undefined),
       config: runtime.providerConfig,
     }
 

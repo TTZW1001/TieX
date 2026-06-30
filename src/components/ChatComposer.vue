@@ -7,8 +7,11 @@ import { useWorkspaceStore } from '@/stores/workspace.store'
 import { useTaskStore } from '@/stores/task.store'
 import { useUiStore } from '@/stores/ui.store'
 import { useSettingsStore } from '@/stores/settings.store'
+import { useAiSettingsStore } from '@/stores/ai-settings.store'
+import { useSkillsStore } from '@/stores/skills.store'
 import { getProviderCapabilities, getProviderCapabilityBadges, getProviderCapabilitySummary } from '@/utils/provider-capabilities'
 import type { ComposerDraftSource } from '@/stores/ui.store'
+import type { AiConfigInfo } from '@/types/global'
 
 const chatStore = useChatStore()
 const conversationStore = useConversationStore()
@@ -16,11 +19,15 @@ const workspaceStore = useWorkspaceStore()
 const taskStore = useTaskStore()
 const uiStore = useUiStore()
 const settingsStore = useSettingsStore()
+const aiSettingsStore = useAiSettingsStore()
+const skillsStore = useSkillsStore()
 const inputText = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const attachments = ref<Array<{ path: string; name: string; mimeType: string | null; size: number | null }>>([])
 const showSessionConfig = ref(false)
+const showSkillSuggest = ref(false)
+const skillQuery = ref('')
 const sessionConfigWrap = ref<HTMLElement | null>(null)
 const draftNotice = ref('')
 let draftNoticeTimer: ReturnType<typeof setTimeout> | null = null
@@ -63,24 +70,27 @@ const statusText = computed(() => {
 })
 
 const canSend = computed(() => (!!inputText.value.trim() || attachments.value.length > 0) && !showStopButton.value)
+const effectiveAiConfig = computed(() => aiSettingsStore.getEffectiveConfig(conversationStore.currentConversationId))
 const currentProvider = computed(() => {
-  const provider = settingsStore.providers.find((item) => item.id === (currentConversation.value?.provider_id ?? settingsStore.providerId))
+  const effective = effectiveAiConfig.value
+  if (effective?.provider) return effective.provider
+  const provider = settingsStore.providers.find((item) => item.id === (effective?.providerId ?? settingsStore.providerId))
   return provider ?? null
 })
 const currentProviderCapabilities = computed(() => {
   const provider = currentProvider.value
   if (!provider) return null
-  return getProviderCapabilities(provider.provider_type, provider.model_name)
+  return getProviderCapabilities(provider.provider_type, effectiveAiConfig.value?.modelName || provider.model_name)
 })
 const currentProviderCapabilityBadges = computed(() => {
   const provider = currentProvider.value
   if (!provider) return []
-  return getProviderCapabilityBadges(provider.provider_type, provider.model_name)
+  return getProviderCapabilityBadges(provider.provider_type, effectiveAiConfig.value?.modelName || provider.model_name)
 })
 const providerCapabilitySummary = computed(() => {
   const provider = currentProvider.value
   if (!provider) return '未选择模型服务'
-  return getProviderCapabilitySummary(provider.provider_type, provider.model_name)
+  return getProviderCapabilitySummary(provider.provider_type, effectiveAiConfig.value?.modelName || provider.model_name)
 })
 const canAttach = computed(() => {
   return currentProviderCapabilities.value?.supportsAttachments ?? false
@@ -108,7 +118,26 @@ const permissionModeHint = computed(() => {
 const providerModelLabel = computed(() => {
   const provider = currentProvider.value
   if (!provider) return '未选择模型服务'
-  return `${provider.name} · ${provider.model_name}`
+  return `${provider.name} · ${effectiveAiConfig.value?.modelName || provider.model_name}`
+})
+
+const conversationAiSettings = computed(() => aiSettingsStore.getConversationSettings(conversationStore.currentConversationId))
+const aiConfigStatusText = computed(() => {
+  const conversationId = conversationStore.currentConversationId
+  if (!conversationId) return '继承默认 AI 配置'
+  const explicitCount = Object.values(conversationAiSettings.value?.overrideMask ?? {}).filter(Boolean).length
+  const legacyProviderCount =
+    effectiveAiConfig.value?.source?.providerId === 'conversation' && !conversationAiSettings.value?.overrideMask?.providerId ? 1 : 0
+  const count = explicitCount + legacyProviderCount
+  return count > 0 ? `当前会话已覆盖 ${count} 项` : '继承默认 AI 配置'
+})
+
+const enabledSkillSuggestions = computed(() => {
+  const query = skillQuery.value.toLowerCase()
+  return skillsStore.skills
+    .filter((skill) => skill.enabled)
+    .filter((skill) => !query || skill.name.toLowerCase().includes(query) || skill.displayName.toLowerCase().includes(query))
+    .slice(0, 8)
 })
 
 function draftNoticeText(source: ComposerDraftSource | null): string {
@@ -139,6 +168,23 @@ watch(
     textareaRef.value?.setSelectionRange(length, length)
   }
 )
+
+watch(
+  () => conversationStore.currentConversationId,
+  (conversationId) => {
+    if (conversationId) {
+      aiSettingsStore.loadConversation(conversationId)
+    }
+  },
+  { immediate: true }
+)
+
+watch(inputText, (value) => {
+  const beforeCursor = value
+  const match = beforeCursor.match(/(^|\s)\$([a-zA-Z0-9_-]*)$/)
+  showSkillSuggest.value = !!match
+  skillQuery.value = match?.[2] ?? ''
+})
 
 async function send() {
   if ((!inputText.value.trim() && attachments.value.length === 0) || showStopButton.value) return
@@ -193,6 +239,14 @@ async function selectWorkspace() {
   await conversationStore.loadConversations()
 }
 
+function insertSkillRef(skillName: string) {
+  const value = inputText.value
+  const next = value.replace(/(^|\s)\$([a-zA-Z0-9_-]*)$/, `$1$${skillName} `)
+  inputText.value = next === value ? `${value}$${skillName} ` : next
+  showSkillSuggest.value = false
+  nextTick(() => textareaRef.value?.focus())
+}
+
 function triggerAttachmentPicker() {
   if (!canAttach.value) return
   fileInput.value?.click()
@@ -235,6 +289,7 @@ async function changeConversationProvider(event: Event) {
   const conversationId = conversationStore.currentConversationId
   if (!target || !conversationId) return
   await conversationStore.updateConversationProvider(conversationId, target.value || null)
+  await aiSettingsStore.setConversationOverride(conversationId, { providerId: target.value || null }, { providerId: true })
   await conversationStore.loadConversations()
   showSessionConfig.value = true
 }
@@ -249,8 +304,37 @@ async function changePermissionMode(event: Event) {
   showSessionConfig.value = true
 }
 
+async function overrideAiField(field: keyof AiConfigInfo, rawValue: string | number | boolean | null) {
+  const conversationId = conversationStore.currentConversationId
+  if (!conversationId) return
+  const value = rawValue === '' ? null : rawValue
+  await aiSettingsStore.setConversationOverride(conversationId, { [field]: value } as any, { [field]: true } as any)
+}
+
+function optionalNumberFromEvent(event: Event): number | null {
+  const value = (event.target as HTMLInputElement | null)?.value ?? ''
+  if (value.trim() === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+async function inheritAiField(field: keyof AiConfigInfo) {
+  const conversationId = conversationStore.currentConversationId
+  if (!conversationId) return
+  await aiSettingsStore.inheritConversationField(conversationId, field as any)
+}
+
+async function resetAiInheritance() {
+  const conversationId = conversationStore.currentConversationId
+  if (!conversationId) return
+  await conversationStore.updateConversationProvider(conversationId, null)
+  await aiSettingsStore.resetConversation(conversationId)
+  await conversationStore.loadConversations()
+}
+
 onMounted(() => {
   document.addEventListener('mousedown', handleDocumentPointerDown)
+  skillsStore.loadSkills()
 })
 
 onBeforeUnmount(() => {
@@ -282,6 +366,18 @@ onBeforeUnmount(() => {
         :placeholder="effectiveWorkspaceId ? '描述你想让 TieX 在当前工作区完成的任务' : '输入你想讨论的问题，或先选择一个工作区'"
         aria-label="消息输入框"
       ></textarea>
+
+      <div v-if="showSkillSuggest && enabledSkillSuggestions.length > 0" class="skill-suggest">
+        <button
+          v-for="skill in enabledSkillSuggestions"
+          :key="skill.id"
+          class="skill-suggest-item"
+          @click="insertSkillRef(skill.name)"
+        >
+          <span class="skill-suggest-name">${{ skill.name }}</span>
+          <span class="skill-suggest-desc">{{ skill.description || skill.displayName }}</span>
+        </button>
+      </div>
 
       <div class="composer-footer">
         <div class="composer-left">
@@ -323,6 +419,80 @@ onBeforeUnmount(() => {
                   >
                     {{ badge.label }}
                   </span>
+                </div>
+              </div>
+              <div class="session-ai-panel">
+                <div class="session-ai-head">
+                  <span>{{ aiConfigStatusText }}</span>
+                  <button class="mini-link" @click="resetAiInheritance">恢复继承</button>
+                </div>
+                <div class="session-ai-grid">
+                  <label class="session-ai-field">
+                    <span>Temperature</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="2"
+                      step="0.1"
+                      :value="effectiveAiConfig?.temperature ?? ''"
+                      placeholder="默认"
+                      @change="overrideAiField('temperature', optionalNumberFromEvent($event))"
+                    />
+                    <button v-if="aiSettingsStore.isOverridden(conversationStore.currentConversationId, 'temperature')" class="mini-link" @click="inheritAiField('temperature')">继承</button>
+                  </label>
+                  <label class="session-ai-field">
+                    <span>Top P</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      :value="effectiveAiConfig?.topP ?? ''"
+                      placeholder="默认"
+                      @change="overrideAiField('topP', optionalNumberFromEvent($event))"
+                    />
+                    <button v-if="aiSettingsStore.isOverridden(conversationStore.currentConversationId, 'topP')" class="mini-link" @click="inheritAiField('topP')">继承</button>
+                  </label>
+                  <label class="session-ai-field">
+                    <span>输出上限</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="256"
+                      :value="effectiveAiConfig?.maxTokens ?? ''"
+                      placeholder="默认"
+                      @change="overrideAiField('maxTokens', optionalNumberFromEvent($event))"
+                    />
+                    <button v-if="aiSettingsStore.isOverridden(conversationStore.currentConversationId, 'maxTokens')" class="mini-link" @click="inheritAiField('maxTokens')">继承</button>
+                  </label>
+                  <label class="session-ai-field">
+                    <span>历史消息</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="200"
+                      step="1"
+                      :value="effectiveAiConfig?.contextMessageLimit ?? ''"
+                      @change="overrideAiField('contextMessageLimit', optionalNumberFromEvent($event))"
+                    />
+                    <button v-if="aiSettingsStore.isOverridden(conversationStore.currentConversationId, 'contextMessageLimit')" class="mini-link" @click="inheritAiField('contextMessageLimit')">继承</button>
+                  </label>
+                </div>
+                <div class="session-ai-switches">
+                  <button
+                    class="session-toggle"
+                    :class="{ on: effectiveAiConfig?.streamEnabled !== false }"
+                    @click="overrideAiField('streamEnabled', effectiveAiConfig?.streamEnabled === false)"
+                  >
+                    流式
+                  </button>
+                  <button
+                    class="session-toggle"
+                    :class="{ on: effectiveAiConfig?.toolsEnabled !== false }"
+                    @click="overrideAiField('toolsEnabled', effectiveAiConfig?.toolsEnabled === false)"
+                  >
+                    工具
+                  </button>
                 </div>
               </div>
               <label class="composer-select-field session-field">
@@ -450,6 +620,49 @@ onBeforeUnmount(() => {
   opacity: 0.65;
 }
 
+.skill-suggest {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-surface) 98%, transparent);
+  box-shadow: 0 14px 30px rgba(34, 23, 15, 0.1);
+}
+
+.skill-suggest-item {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+}
+
+.skill-suggest-item:hover {
+  background: var(--sidebar-item-hover);
+}
+
+.skill-suggest-name {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.skill-suggest-desc {
+  color: var(--sidebar-text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer-footer {
   display: flex;
   align-items: center;
@@ -489,10 +702,13 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 0;
   bottom: calc(100% + 10px);
-  z-index: 20;
-  width: min(320px, calc(100vw - 56px));
-  padding: 14px;
-  border-radius: 18px;
+  z-index: 80;
+  width: min(300px, calc(100vw - 56px));
+  max-height: min(240px, calc(100vh - 170px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border-radius: 16px;
   border: 1px solid var(--sidebar-border);
   background: color-mix(in srgb, var(--sidebar-surface) 98%, transparent);
   box-shadow: 0 18px 34px rgba(34, 23, 15, 0.12);
@@ -529,7 +745,7 @@ onBeforeUnmount(() => {
   width: 100%;
   justify-content: space-between;
   padding: 0;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .field-label {
@@ -571,12 +787,12 @@ onBeforeUnmount(() => {
 .session-model-pill {
   width: 100%;
   max-width: none;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .session-capability-panel {
-  margin-top: 8px;
-  padding: 9px 10px;
+  margin-top: 7px;
+  padding: 8px;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--sidebar-border) 72%, transparent);
   background: color-mix(in srgb, var(--sidebar-bg) 38%, transparent);
@@ -614,6 +830,86 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, var(--sidebar-border) 74%, transparent);
   background: color-mix(in srgb, var(--sidebar-bg) 34%, transparent);
   color: var(--muted);
+}
+
+.session-ai-panel {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--sidebar-border) 72%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg) 34%, transparent);
+}
+
+.session-ai-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mini-link {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.session-ai-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.session-ai-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.session-ai-field span {
+  color: var(--sidebar-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.session-ai-field input {
+  width: 100%;
+  min-height: 32px;
+  border-radius: 9px;
+  border: 1px solid var(--sidebar-border);
+  background: color-mix(in srgb, var(--sidebar-bg) 42%, transparent);
+  color: var(--text);
+  padding: 0 8px;
+}
+
+.session-ai-switches {
+  display: flex;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.session-toggle {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--sidebar-border);
+  background: transparent;
+  color: var(--sidebar-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.session-toggle.on {
+  border-color: color-mix(in srgb, var(--success) 22%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+  color: var(--success-strong);
 }
 
 .session-hint {

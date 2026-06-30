@@ -11,9 +11,13 @@ import { registerFileChangeIpc } from './file-change.ipc'
 import { registerArtifactIpc } from './artifact.ipc'
 import { registerCommandIpc } from './command.ipc'
 import { registerStatsIpc } from './stats.ipc'
+import { registerAiSettingsIpc } from './ai-settings.ipc'
+import { registerSkillsIpc } from './skills.ipc'
 
 export function registerAllIpc(): void {
   registerSettingsIpc()
+  registerAiSettingsIpc()
+  registerSkillsIpc()
   registerProviderIpc()
   registerConversationIpc()
   registerChatIpc()
